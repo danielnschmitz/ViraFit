@@ -1,0 +1,221 @@
+import crypto from 'crypto';
+import { Request, Response, NextFunction } from 'express';
+import { pool } from './db';
+
+export interface TokenPayload {
+  id: string;
+  username: string;
+  name: string;
+  role: 'master' | 'admin' | 'standard';
+  organization_id: string | null;
+  exp: number;
+}
+
+export interface AuthRequest extends Request {
+  user?: TokenPayload;
+  activeOrgId?: string | null;
+}
+
+let cachedSecret: string | null = null;
+
+export async function getJwtSecret(): Promise<string> {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+  if (cachedSecret) {
+    return cachedSecret;
+  }
+
+  const res = await pool.query(`SELECT value FROM app_settings WHERE key = 'jwt_secret'`);
+  if (res.rows.length > 0) {
+    const val = res.rows[0].value;
+    cachedSecret = typeof val === 'string' ? val : val.secret;
+    return cachedSecret!;
+  }
+
+  const generated = crypto.randomBytes(64).toString('hex');
+  await pool.query(
+    `INSERT INTO app_settings (key, value) VALUES ('jwt_secret', $1) ON CONFLICT (key) DO NOTHING`,
+    [JSON.stringify({ secret: generated })]
+  );
+
+  cachedSecret = generated;
+  return generated;
+}
+
+function base64UrlEncode(str: string): string {
+  return Buffer.from(str)
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+}
+
+function base64UrlDecode(str: string): string {
+  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4) {
+    base64 += '=';
+  }
+  return Buffer.from(base64, 'base64').toString('utf8');
+}
+
+export async function generateToken(
+  user: {
+    id: string;
+    username: string;
+    name: string;
+    role: 'master' | 'admin' | 'standard';
+    organization_id: string | null;
+  },
+  expiresInDays = 30
+): Promise<string> {
+  const secret = await getJwtSecret();
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const exp = Math.floor(Date.now() / 1000) + expiresInDays * 24 * 60 * 60;
+
+  const payload: TokenPayload = {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    role: user.role,
+    organization_id: user.organization_id,
+    exp,
+  };
+
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const data = `${encodedHeader}.${encodedPayload}`;
+
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(data)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+
+  return `${data}.${signature}`;
+}
+
+export async function verifyToken(token: string): Promise<TokenPayload | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+
+    const [encodedHeader, encodedPayload, signature] = parts;
+    const data = `${encodedHeader}.${encodedPayload}`;
+    const secret = await getJwtSecret();
+
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(data)
+      .digest('base64')
+      .replace(/=/g, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+
+    const sigBuffer = Buffer.from(signature);
+    const expectedSigBuffer = Buffer.from(expectedSignature);
+
+    if (
+      sigBuffer.length !== expectedSigBuffer.length ||
+      !crypto.timingSafeEqual(sigBuffer, expectedSigBuffer)
+    ) {
+      return null;
+    }
+
+    const payload: TokenPayload = JSON.parse(base64UrlDecode(encodedPayload));
+    const now = Math.floor(Date.now() / 1000);
+
+    if (payload.exp && payload.exp < now) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+export function hashPassword(password: string, salt: string): string {
+  return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+}
+
+export function verifyPassword(password: string, salt: string, expectedHash: string): boolean {
+  const hash = hashPassword(password, salt);
+  const hashBuffer = Buffer.from(hash, 'hex');
+  const expectedBuffer = Buffer.from(expectedHash, 'hex');
+
+  if (hashBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(hashBuffer, expectedBuffer);
+}
+
+export async function authenticateToken(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const authHeader = req.headers['authorization'];
+  const headerToken = authHeader && authHeader.split(' ')[1];
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
+  const token = headerToken || queryToken;
+
+  if (!token) {
+    res.status(401).json({ error: 'Acesso não autorizado. Faça login para continuar.' });
+    return;
+  }
+
+  const payload = await verifyToken(token);
+  if (!payload) {
+    res.status(401).json({ error: 'Sessão expirada ou inválida. Faça login novamente.' });
+    return;
+  }
+
+  const userRes = await pool.query(
+    `SELECT id, username, name, role, organization_id, active FROM users WHERE id = $1`,
+    [payload.id]
+  );
+
+  if (userRes.rows.length === 0 || !userRes.rows[0].active) {
+    res.status(401).json({ error: 'Usuário inativo ou não encontrado.' });
+    return;
+  }
+
+  const dbUser = userRes.rows[0];
+  req.user = {
+    id: dbUser.id,
+    username: dbUser.username,
+    name: dbUser.name,
+    role: dbUser.role,
+    organization_id: dbUser.organization_id,
+    exp: payload.exp,
+  };
+
+  if (dbUser.role === 'master') {
+    const headerOrg = req.headers['x-org-id'];
+    req.activeOrgId = typeof headerOrg === 'string' && headerOrg.trim() !== '' ? headerOrg.trim() : null;
+  } else {
+    req.activeOrgId = dbUser.organization_id;
+  }
+
+  next();
+}
+
+export function requireMaster(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (!req.user || req.user.role !== 'master') {
+    res.status(403).json({ error: 'Acesso restrito ao usuário Master.' });
+    return;
+  }
+  next();
+}
+
+export function requireOrgContext(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (!req.activeOrgId) {
+    res.status(400).json({ error: 'Nenhuma organização selecionada para esta operação.' });
+    return;
+  }
+  next();
+}

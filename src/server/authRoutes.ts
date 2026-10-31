@@ -58,6 +58,7 @@ authRouter.post('/login', async (req, res) => {
         email: user.email,
         role: user.role,
         organization_id: user.organization_id,
+        must_change_password: Boolean(user.must_change_password),
         organization: user.organization_id
           ? {
               id: user.organization_id,
@@ -84,7 +85,7 @@ authRouter.post('/login', async (req, res) => {
 authRouter.get('/me', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRes = await pool.query(
-      `SELECT id, username, name, email, role, organization_id FROM users WHERE id = $1`,
+      `SELECT id, username, name, email, role, organization_id, must_change_password FROM users WHERE id = $1`,
       [req.user!.id]
     );
     if (userRes.rows.length === 0) {
@@ -103,12 +104,52 @@ authRouter.get('/me', authenticateToken, async (req: AuthRequest, res) => {
     res.json({
       user: {
         ...user,
+        must_change_password: Boolean(user.must_change_password),
         organization: activeOrg,
       },
     });
   } catch (err) {
     console.error('[Auth] Erro ao buscar perfil:', err);
     res.status(500).json({ error: 'Erro ao carregar dados da sessão.' });
+  }
+});
+
+// Troca obrigatória de senha no primeiro acesso
+authRouter.post('/first-access-password', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const { newPassword, confirmPassword } = req.body;
+    const userId = req.user!.id;
+
+    if (!newPassword || String(newPassword).trim().length < 4) {
+      return res.status(400).json({ error: 'Informe uma nova senha com pelo menos 4 caracteres.' });
+    }
+
+    if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+      return res.status(400).json({ error: 'A confirmação de senha não confere.' });
+    }
+
+    const userRes = await pool.query(`SELECT * FROM users WHERE id = $1`, [userId]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+    const user = userRes.rows[0];
+
+    if (verifyPassword(newPassword, user.salt, user.password_hash)) {
+      return res.status(400).json({ error: 'A nova senha deve ser diferente da senha provisória atual.' });
+    }
+
+    const newSalt = crypto.randomBytes(16).toString('hex');
+    const newHash = hashPassword(newPassword, newSalt);
+
+    await pool.query(
+      `UPDATE users SET password_hash = $1, salt = $2, must_change_password = FALSE, updated_at = NOW() WHERE id = $3`,
+      [newHash, newSalt, userId]
+    );
+
+    res.json({ message: 'Senha alterada com sucesso.' });
+  } catch (err) {
+    console.error('[Auth] Erro ao alterar senha no primeiro acesso:', err);
+    res.status(500).json({ error: 'Erro ao alterar senha.' });
   }
 });
 
@@ -131,7 +172,7 @@ authRouter.put('/profile', authenticateToken, async (req: AuthRequest, res) => {
       const newSalt = crypto.randomBytes(16).toString('hex');
       const newHash = hashPassword(newPassword, newSalt);
       await pool.query(
-        `UPDATE users SET name = $1, email = $2, password_hash = $3, salt = $4, updated_at = NOW() WHERE id = $5`,
+        `UPDATE users SET name = $1, email = $2, password_hash = $3, salt = $4, must_change_password = FALSE, updated_at = NOW() WHERE id = $5`,
         [name || user.name, email ?? user.email, newHash, newSalt, userId]
       );
     } else {

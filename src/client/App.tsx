@@ -4,6 +4,7 @@ import {
   Building2,
   Dumbbell,
   GraduationCap,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -194,6 +195,115 @@ const LoginScreen: React.FC<{ onLogin: (token: string) => void; theme: ReturnTyp
   );
 };
 
+/* ---------------- Troca Obrigatória de Senha no Primeiro Acesso ---------------- */
+const ForcePasswordChangeScreen: React.FC<{
+  user: User;
+  onSuccess: () => void;
+  onLogout: () => void;
+  theme: ReturnType<typeof useColorScheme>;
+}> = ({ user, onSuccess, onLogout, theme }) => {
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (newPassword.trim().length < 4) {
+      setError('A nova senha deve ter pelo menos 4 caracteres.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('A confirmação de senha não confere.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await apiFetch('/api/auth/first-access-password', {
+        method: 'POST',
+        body: JSON.stringify({ newPassword, confirmPassword }),
+      });
+      onSuccess();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-50 via-emerald-50/40 to-slate-100 dark:from-slate-950 dark:via-emerald-950/20 dark:to-slate-950">
+      <div className="absolute top-4 right-4 flex items-center gap-2">
+        <ThemeToggle {...theme} />
+        <button
+          type="button"
+          onClick={onLogout}
+          className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+          aria-label="Sair"
+          title="Sair"
+        >
+          <LogOut className="w-5 h-5" />
+        </button>
+      </div>
+      <div className="w-full max-w-md bg-white/90 dark:bg-slate-900/90 backdrop-blur border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-xl space-y-5">
+        <div className="flex flex-col items-center text-center gap-2">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+            <KeyRound className="w-6 h-6" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+            Primeiro Acesso — Defina sua Senha
+          </h1>
+          <p className="text-sm text-slate-500">
+            Olá, <strong>{user.name}</strong> (@{user.username}). Por segurança, você precisa alterar sua senha provisória antes de continuar.
+          </p>
+        </div>
+
+        <form onSubmit={submit} className="space-y-4">
+          <ErrorBox error={error} onClose={() => setError(null)} />
+          <div>
+            <label htmlFor="first-new-pass" className={labelCls}>
+              Nova Senha *
+            </label>
+            <input
+              id="first-new-pass"
+              type="password"
+              required
+              autoFocus
+              minLength={4}
+              autoComplete="new-password"
+              placeholder="Digite sua nova senha"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label htmlFor="first-confirm-pass" className={labelCls}>
+              Confirmar Nova Senha *
+            </label>
+            <input
+              id="first-confirm-pass"
+              type="password"
+              required
+              minLength={4}
+              autoComplete="new-password"
+              placeholder="Repita sua nova senha"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+          <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}>
+            {busy ? 'Salvando nova senha...' : 'Confirmar e Acessar o Sistema'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 /* ---------------- Escolha do Master ---------------- */
 const MasterChoice: React.FC<{
   user: User;
@@ -366,6 +476,20 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center text-slate-500 text-sm">
         Carregando...
       </div>
+    );
+  }
+
+  if (user.must_change_password) {
+    return (
+      <ForcePasswordChangeScreen
+        user={user}
+        theme={theme}
+        onLogout={logout}
+        onSuccess={() => {
+          setLoading(true);
+          loadMe();
+        }}
+      />
     );
   }
 

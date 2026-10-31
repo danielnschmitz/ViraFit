@@ -148,9 +148,12 @@ export async function initDatabase(): Promise<void> {
         role VARCHAR(20) NOT NULL DEFAULT 'standard', -- 'master', 'admin', 'standard'
         organization_id VARCHAR(36) REFERENCES organizations(id) ON DELETE CASCADE,
         active BOOLEAN NOT NULL DEFAULT TRUE,
+        must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT TRUE;
 
       CREATE TABLE IF NOT EXISTS student_groups (
         id VARCHAR(36) PRIMARY KEY,
@@ -227,8 +230,8 @@ export async function initDatabase(): Promise<void> {
       const salt = crypto.randomBytes(16).toString('hex');
       const passwordHash = hashPassword('admin123', salt);
       await client.query(
-        `INSERT INTO users (id, username, name, email, password_hash, salt, role, organization_id)
-         VALUES ($1, $2, $3, $4, $5, $6, 'master', NULL)`,
+        `INSERT INTO users (id, username, name, email, password_hash, salt, role, organization_id, must_change_password)
+         VALUES ($1, $2, $3, $4, $5, $6, 'master', NULL, TRUE)`,
         [id, 'master', 'Administrador Master', 'master@virafit.dev', passwordHash, salt]
       );
       console.log('[DB] Usuário Master padrão criado: login "master" / senha "admin123"');

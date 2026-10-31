@@ -26,6 +26,7 @@ export interface User {
   organization_id: string | null;
   organization_name?: string | null;
   active?: boolean;
+  must_change_password?: boolean;
   organization?: Organization | null;
 }
 

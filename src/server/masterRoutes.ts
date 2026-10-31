@@ -255,7 +255,7 @@ masterRouter.get('/users', async (req: AuthRequest, res) => {
 
     if (user.role === 'master' && !targetOrgId) {
       const result = await pool.query(`
-        SELECT u.id, u.username, u.name, u.email, u.role, u.organization_id, u.active, u.created_at,
+        SELECT u.id, u.username, u.name, u.email, u.role, u.organization_id, u.active, u.must_change_password, u.created_at,
                o.name AS organization_name
         FROM users u
         LEFT JOIN organizations o ON u.organization_id = o.id
@@ -265,7 +265,7 @@ masterRouter.get('/users', async (req: AuthRequest, res) => {
     }
 
     const result = await pool.query(
-      `SELECT u.id, u.username, u.name, u.email, u.role, u.organization_id, u.active, u.created_at,
+      `SELECT u.id, u.username, u.name, u.email, u.role, u.organization_id, u.active, u.must_change_password, u.created_at,
               o.name AS organization_name
        FROM users u
        LEFT JOIN organizations o ON u.organization_id = o.id
@@ -336,9 +336,9 @@ masterRouter.post('/users', async (req: AuthRequest, res) => {
     const passwordHash = hashPassword(password, salt);
 
     const insertRes = await pool.query(
-      `INSERT INTO users (id, username, name, email, password_hash, salt, role, organization_id, active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
-       RETURNING id, username, name, email, role, organization_id, active, created_at`,
+      `INSERT INTO users (id, username, name, email, password_hash, salt, role, organization_id, active, must_change_password)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, TRUE)
+       RETURNING id, username, name, email, role, organization_id, active, must_change_password, created_at`,
       [id, username.trim(), name.trim(), email || null, passwordHash, salt, targetRole, targetOrgId]
     );
 
@@ -421,9 +421,11 @@ masterRouter.put('/users/:id', async (req: AuthRequest, res) => {
 
     let salt = existing.salt;
     let passwordHash = existing.password_hash;
+    let mustChangePassword = existing.must_change_password;
     if (password && password.trim() !== '') {
       salt = crypto.randomBytes(16).toString('hex');
       passwordHash = hashPassword(password, salt);
+      mustChangePassword = true;
     }
 
     const updateRes = await pool.query(
@@ -436,9 +438,10 @@ masterRouter.put('/users/:id', async (req: AuthRequest, res) => {
         role = $6,
         organization_id = $7,
         active = $8,
+        must_change_password = $9,
         updated_at = NOW()
-       WHERE id = $9
-       RETURNING id, username, name, email, role, organization_id, active, created_at`,
+       WHERE id = $10
+       RETURNING id, username, name, email, role, organization_id, active, must_change_password, created_at`,
       [
         username ? username.trim() : existing.username,
         name ? name.trim() : existing.name,
@@ -448,6 +451,7 @@ masterRouter.put('/users/:id', async (req: AuthRequest, res) => {
         targetRole,
         targetRole === 'master' ? null : targetOrgId,
         active !== undefined ? Boolean(active) : existing.active,
+        mustChangePassword,
         id,
       ]
     );

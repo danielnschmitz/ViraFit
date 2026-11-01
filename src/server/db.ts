@@ -50,17 +50,17 @@ export const DEFAULT_EXERCISE_CATEGORIES = [
 ];
 
 export const DEFAULT_EXERCISE_SCHEMES = [
-  { name: '3x10', scheme_type: 'series_retas', sets: 3, reps: '10', rep_unit: 'reps' },
-  { name: '3x12', scheme_type: 'series_retas', sets: 3, reps: '12', rep_unit: 'reps' },
-  { name: '3x15', scheme_type: 'series_retas', sets: 3, reps: '15', rep_unit: 'reps' },
-  { name: '4x10', scheme_type: 'series_retas', sets: 4, reps: '10', rep_unit: 'reps' },
-  { name: '4x12', scheme_type: 'series_retas', sets: 4, reps: '12', rep_unit: 'reps' },
-  { name: '3x 45 seg', scheme_type: 'series_retas', sets: 3, reps: '45', rep_unit: 'seconds' },
-  { name: '3x 1 min', scheme_type: 'series_retas', sets: 3, reps: '1', rep_unit: 'minutes' },
-  { name: 'Pirâmide 12-10-8-6', scheme_type: 'piramide', sets: 4, reps: '12-10-8-6', rep_unit: 'reps' },
-  { name: 'Drop-set 3x10', scheme_type: 'drop_set', sets: 3, reps: '10', rep_unit: 'reps' },
-  { name: 'Rest-Pause 3x10', scheme_type: 'rest_pause', sets: 3, reps: '10', rep_unit: 'reps' },
-  { name: '3x Até a Falha', scheme_type: 'ate_a_falha', sets: 3, reps: 'Falha', rep_unit: 'reps' },
+  { name: '3x10', scheme_type: 'series_retas', sets: 3, reps: '10', rep_unit: 'reps', rest_time: '60', rest_unit: 'seconds' },
+  { name: '3x12', scheme_type: 'series_retas', sets: 3, reps: '12', rep_unit: 'reps', rest_time: '60', rest_unit: 'seconds' },
+  { name: '3x15', scheme_type: 'series_retas', sets: 3, reps: '15', rep_unit: 'reps', rest_time: '45', rest_unit: 'seconds' },
+  { name: '4x10', scheme_type: 'series_retas', sets: 4, reps: '10', rep_unit: 'reps', rest_time: '60', rest_unit: 'seconds' },
+  { name: '4x12', scheme_type: 'series_retas', sets: 4, reps: '12', rep_unit: 'reps', rest_time: '60', rest_unit: 'seconds' },
+  { name: '3x 45 seg', scheme_type: 'series_retas', sets: 3, reps: '45', rep_unit: 'seconds', rest_time: '30', rest_unit: 'seconds' },
+  { name: '3x 1 min', scheme_type: 'series_retas', sets: 3, reps: '1', rep_unit: 'minutes', rest_time: '30', rest_unit: 'seconds' },
+  { name: 'Pirâmide 12-10-8-6', scheme_type: 'piramide', sets: 4, reps: '12-10-8-6', rep_unit: 'reps', rest_time: '90', rest_unit: 'seconds' },
+  { name: 'Drop-set 3x10', scheme_type: 'drop_set', sets: 3, reps: '10', rep_unit: 'reps', rest_time: '60', rest_unit: 'seconds' },
+  { name: 'Rest-Pause 3x10', scheme_type: 'rest_pause', sets: 3, reps: '10', rep_unit: 'reps', rest_time: '15', rest_unit: 'seconds' },
+  { name: '3x Até a Falha', scheme_type: 'ate_a_falha', sets: 3, reps: 'Falha', rep_unit: 'reps', rest_time: '60', rest_unit: 'seconds' },
 ];
 
 export async function seedOrganizationDefaults(orgId: string, client?: PoolClient | Pool): Promise<void> {
@@ -100,10 +100,10 @@ export async function seedOrganizationDefaults(orgId: string, client?: PoolClien
   if (schemesCount.rows[0].total === 0) {
     for (const s of DEFAULT_EXERCISE_SCHEMES) {
       await db.query(
-        `INSERT INTO exercise_schemes (id, organization_id, name, scheme_type, sets, reps, rep_unit, is_default)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
+        `INSERT INTO exercise_schemes (id, organization_id, name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, is_default)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
          ON CONFLICT (organization_id, name) DO NOTHING`,
-        [crypto.randomUUID(), orgId, s.name, s.scheme_type, s.sets, s.reps, s.rep_unit]
+        [crypto.randomUUID(), orgId, s.name, s.scheme_type, s.sets, s.reps, s.rep_unit, s.rest_time, s.rest_unit]
       );
     }
   }
@@ -250,10 +250,15 @@ export async function initDatabase(): Promise<void> {
         sets INTEGER NOT NULL DEFAULT 3,
         reps VARCHAR(100) NOT NULL DEFAULT '10',
         rep_unit VARCHAR(20) NOT NULL DEFAULT 'reps', -- 'reps', 'seconds', 'minutes'
+        rest_time VARCHAR(30) DEFAULT '60',
+        rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds', -- 'seconds', 'minutes'
         is_default BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         UNIQUE(organization_id, name)
       );
+
+      ALTER TABLE exercise_schemes ADD COLUMN IF NOT EXISTS rest_time VARCHAR(30) DEFAULT '60';
+      ALTER TABLE exercise_schemes ADD COLUMN IF NOT EXISTS rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds';
 
       CREATE TABLE IF NOT EXISTS workout_templates (
         id VARCHAR(36) PRIMARY KEY,
@@ -277,9 +282,14 @@ export async function initDatabase(): Promise<void> {
         sets INTEGER NOT NULL DEFAULT 3,
         reps VARCHAR(100) NOT NULL DEFAULT '10',
         rep_unit VARCHAR(20) NOT NULL DEFAULT 'reps',
+        rest_time VARCHAR(30) DEFAULT '60',
+        rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds',
         notes TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      ALTER TABLE workout_template_items ADD COLUMN IF NOT EXISTS rest_time VARCHAR(30) DEFAULT '60';
+      ALTER TABLE workout_template_items ADD COLUMN IF NOT EXISTS rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds';
 
       CREATE INDEX IF NOT EXISTS idx_users_org ON users(organization_id);
       CREATE INDEX IF NOT EXISTS idx_students_org ON students(organization_id, name);

@@ -995,6 +995,7 @@ orgRouter.delete('/exercises/:id', async (req: AuthRequest, res) => {
 // ============================================================================
 const VALID_SCHEME_TYPES = ['series_retas', 'piramide', 'drop_set', 'rest_pause', 'ate_a_falha'];
 const VALID_REP_UNITS = ['reps', 'seconds', 'minutes'];
+const VALID_REST_UNITS = ['seconds', 'minutes'];
 
 orgRouter.get('/exercise-schemes', async (req: AuthRequest, res) => {
   try {
@@ -1015,7 +1016,7 @@ orgRouter.get('/exercise-schemes', async (req: AuthRequest, res) => {
 orgRouter.post('/exercise-schemes', async (req: AuthRequest, res) => {
   try {
     const orgId = req.activeOrgId!;
-    const { name, scheme_type, sets, reps, rep_unit } = req.body;
+    const { name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit } = req.body;
 
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Informe um nome para identificar o esquema.' });
@@ -1026,6 +1027,8 @@ orgRouter.post('/exercise-schemes', async (req: AuthRequest, res) => {
     const cleanSets = Math.max(1, parseInt(String(sets || 3), 10) || 3);
     const cleanReps = String(reps || '10').trim() || '10';
     const cleanUnit = VALID_REP_UNITS.includes(rep_unit) ? rep_unit : 'reps';
+    const cleanRestTime = rest_time !== undefined && rest_time !== null ? String(rest_time).trim() : '';
+    const cleanRestUnit = VALID_REST_UNITS.includes(rest_unit) ? rest_unit : 'seconds';
 
     const existing = await pool.query(
       `SELECT id FROM exercise_schemes WHERE organization_id = $1 AND LOWER(name) = LOWER($2)`,
@@ -1035,20 +1038,20 @@ orgRouter.post('/exercise-schemes', async (req: AuthRequest, res) => {
     if (existing.rows.length > 0) {
       const updated = await pool.query(
         `UPDATE exercise_schemes
-         SET name = $1, scheme_type = $2, sets = $3, reps = $4, rep_unit = $5
-         WHERE id = $6 AND organization_id = $7
+         SET name = $1, scheme_type = $2, sets = $3, reps = $4, rep_unit = $5, rest_time = $6, rest_unit = $7
+         WHERE id = $8 AND organization_id = $9
          RETURNING *`,
-        [cleanName, cleanType, cleanSets, cleanReps, cleanUnit, existing.rows[0].id, orgId]
+        [cleanName, cleanType, cleanSets, cleanReps, cleanUnit, cleanRestTime || null, cleanRestUnit, existing.rows[0].id, orgId]
       );
       return res.json(updated.rows[0]);
     }
 
     const id = crypto.randomUUID();
     const result = await pool.query(
-      `INSERT INTO exercise_schemes (id, organization_id, name, scheme_type, sets, reps, rep_unit, is_default)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
+      `INSERT INTO exercise_schemes (id, organization_id, name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, is_default)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE)
        RETURNING *`,
-      [id, orgId, cleanName, cleanType, cleanSets, cleanReps, cleanUnit]
+      [id, orgId, cleanName, cleanType, cleanSets, cleanReps, cleanUnit, cleanRestTime || null, cleanRestUnit]
     );
 
     res.status(201).json(result.rows[0]);
@@ -1193,13 +1196,15 @@ orgRouter.post('/workout-templates', async (req: AuthRequest, res) => {
         const cleanSets = Math.max(1, parseInt(String(it.sets || 3), 10) || 3);
         const cleanReps = String(it.reps || '10').trim() || '10';
         const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
+        const cleanRestTime = it.rest_time !== undefined && it.rest_time !== null ? String(it.rest_time).trim() : '';
+        const cleanRestUnit = VALID_REST_UNITS.includes(it.rest_unit) ? it.rest_unit : 'seconds';
         const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
 
         await client.query(
           `INSERT INTO workout_template_items (
             id, template_id, organization_id, position, exercise_id,
-            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, notes
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [
             crypto.randomUUID(),
             templateId,
@@ -1212,6 +1217,8 @@ orgRouter.post('/workout-templates', async (req: AuthRequest, res) => {
             cleanSets,
             cleanReps,
             cleanUnit,
+            cleanRestTime || null,
+            cleanRestUnit,
             it.notes || null,
           ]
         );
@@ -1301,13 +1308,15 @@ orgRouter.put('/workout-templates/:id', async (req: AuthRequest, res) => {
         const cleanSets = Math.max(1, parseInt(String(it.sets || 3), 10) || 3);
         const cleanReps = String(it.reps || '10').trim() || '10';
         const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
+        const cleanRestTime = it.rest_time !== undefined && it.rest_time !== null ? String(it.rest_time).trim() : '';
+        const cleanRestUnit = VALID_REST_UNITS.includes(it.rest_unit) ? it.rest_unit : 'seconds';
         const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
 
         await client.query(
           `INSERT INTO workout_template_items (
             id, template_id, organization_id, position, exercise_id,
-            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, notes
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           [
             crypto.randomUUID(),
             id,
@@ -1320,6 +1329,8 @@ orgRouter.put('/workout-templates/:id', async (req: AuthRequest, res) => {
             cleanSets,
             cleanReps,
             cleanUnit,
+            cleanRestTime || null,
+            cleanRestUnit,
             it.notes || null,
           ]
         );

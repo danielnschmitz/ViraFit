@@ -23,8 +23,8 @@ import {
   ExerciseCategory,
   ExerciseScheme,
   MuscleGroup,
-  REP_UNIT_LABELS,
   RepUnit,
+  RestUnit,
   SCHEME_TYPES_INFO,
   SchemeType,
   WorkoutExerciseItem,
@@ -111,6 +111,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
   const [sets, setSets] = useState<number>(3);
   const [reps, setReps] = useState<string>('10');
   const [repUnit, setRepUnit] = useState<RepUnit>('reps');
+  const [restTime, setRestTime] = useState<string>('60');
+  const [restUnit, setRestUnit] = useState<RestUnit>('seconds');
   const [notes, setNotes] = useState<string>('');
 
   // Opção de salvar esquema manual como pré-definido
@@ -175,6 +177,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
       setSets(defaultScheme.sets);
       setReps(defaultScheme.reps);
       setRepUnit(defaultScheme.rep_unit);
+      setRestTime(defaultScheme.rest_time ?? '60');
+      setRestUnit(defaultScheme.rest_unit || 'seconds');
       setCustomPresetName(defaultScheme.name);
     } else {
       setSelectedSchemeId(null);
@@ -182,6 +186,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
       setSets(3);
       setReps('10');
       setRepUnit('reps');
+      setRestTime('60');
+      setRestUnit('seconds');
       setCustomPresetName('3x10');
     }
     setNotes('');
@@ -214,6 +220,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
     setSets(item.sets || 3);
     setReps(item.reps || '10');
     setRepUnit(item.rep_unit || 'reps');
+    setRestTime(item.rest_time ?? '60');
+    setRestUnit(item.rest_unit || 'seconds');
     setNotes(item.notes || '');
     setCustomPresetName(item.scheme_name || '');
     setConfigTarget({ mode: 'edit', exercise: foundEx, editIndex: index });
@@ -226,6 +234,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
     setSets(s.sets);
     setReps(s.reps);
     setRepUnit(s.rep_unit);
+    setRestTime(s.rest_time ?? '60');
+    setRestUnit(s.rest_unit || 'seconds');
     setSaveAsPreset(false);
     setPresetSavedFeedback(null);
   };
@@ -256,6 +266,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
         sets,
         reps: reps.trim() || '10',
         rep_unit: repUnit,
+        rest_time: restTime.trim(),
+        rest_unit: restUnit,
       }),
     });
     setSchemes((prev) => {
@@ -338,6 +350,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
       sets: cleanSets,
       reps: cleanReps,
       rep_unit: repUnit,
+      rest_time: restTime.trim() || null,
+      rest_unit: restUnit,
       notes: notes.trim() || null,
     };
 
@@ -920,15 +934,93 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
                 />
               </Field>
 
-              <Field label="Observações / Descanso (Opcional)">
+              <Field label="Observações (Opcional)">
                 <input
                   type="text"
-                  placeholder="Ex: 60s de descanso, cadência controlada..."
+                  placeholder="Ex: Cadência controlada, amplitude máxima..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className={inputCls}
                 />
               </Field>
+            </div>
+
+            {/* Tempo de Descanso entre as Séries */}
+            <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  Tempo de Descanso entre as Séries
+                </label>
+
+                {/* Atalhos rápidos de descanso */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { label: 'Sem desc.', val: '0', unit: 'seconds' as RestUnit },
+                    { label: '15s', val: '15', unit: 'seconds' as RestUnit },
+                    { label: '30s', val: '30', unit: 'seconds' as RestUnit },
+                    { label: '45s', val: '45', unit: 'seconds' as RestUnit },
+                    { label: '60s', val: '60', unit: 'seconds' as RestUnit },
+                    { label: '90s', val: '90', unit: 'seconds' as RestUnit },
+                    { label: '2 min', val: '2', unit: 'minutes' as RestUnit },
+                  ].map((q) => {
+                    const isQuickActive = restTime.trim() === q.val && restUnit === q.unit;
+                    return (
+                      <button
+                        key={q.label}
+                        type="button"
+                        onClick={() => {
+                          setRestTime(q.val);
+                          setRestUnit(q.unit);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
+                          isQuickActive
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
+                        }`}
+                      >
+                        {q.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                <div className="sm:col-span-6">
+                  <input
+                    type="text"
+                    placeholder="Ex: 60 (ou 0 para sem descanso)"
+                    value={restTime}
+                    onChange={(e) => setRestTime(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div className="sm:col-span-6 grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { key: 'seconds', label: 'Segundos' },
+                      { key: 'minutes', label: 'Minutos' },
+                    ] as const
+                  ).map((u) => {
+                    const active = restUnit === u.key;
+                    return (
+                      <button
+                        key={u.key}
+                        type="button"
+                        onClick={() => setRestUnit(u.key)}
+                        className={`py-2.5 px-3 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                          active
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                            : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                      >
+                        {u.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
             {/* 4. Salvar Esquema Manual para usar como pré-definido posteriormente */}
@@ -992,6 +1084,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
                     sets: Math.max(1, Number(sets) || 3),
                     reps: reps.trim() || '10',
                     rep_unit: repUnit,
+                    rest_time: restTime.trim(),
+                    rest_unit: restUnit,
                   })}
                 </strong>
               </div>

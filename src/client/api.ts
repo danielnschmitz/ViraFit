@@ -87,6 +87,7 @@ export interface Exercise {
 
 export type SchemeType = 'series_retas' | 'piramide' | 'drop_set' | 'rest_pause' | 'ate_a_falha';
 export type RepUnit = 'reps' | 'seconds' | 'minutes';
+export type RestUnit = 'seconds' | 'minutes';
 
 export interface ExerciseScheme {
   id: string;
@@ -96,6 +97,8 @@ export interface ExerciseScheme {
   sets: number;
   reps: string;
   rep_unit: RepUnit;
+  rest_time?: string | null;
+  rest_unit?: RestUnit;
   is_default: boolean;
   created_at?: string;
 }
@@ -117,6 +120,8 @@ export interface WorkoutExerciseItem {
   sets: number;
   reps: string;
   rep_unit: RepUnit;
+  rest_time?: string | null;
+  rest_unit?: RestUnit;
   notes?: string | null;
 }
 
@@ -183,17 +188,25 @@ export function formatSchemeSummary(item: {
   sets: number;
   reps: string;
   rep_unit: RepUnit;
+  rest_time?: string | null;
+  rest_unit?: RestUnit;
 }): string {
   const unitSuffix =
     item.rep_unit === 'seconds' ? 'seg' : item.rep_unit === 'minutes' ? 'min' : 'reps';
   const typeLabel = SCHEME_TYPES_INFO[item.scheme_type]?.label || 'Séries Retas';
+  const cleanRest = item.rest_time ? String(item.rest_time).trim() : '';
+  const restSuffix =
+    cleanRest && cleanRest !== '0'
+      ? ` • Desc: ${cleanRest}${item.rest_unit === 'minutes' ? 'min' : 's'}`
+      : '';
+
   if (item.scheme_type === 'ate_a_falha' && item.reps.toLowerCase().includes('falha')) {
-    return `${typeLabel} • ${item.sets}x Até a Falha`;
+    return `${typeLabel} • ${item.sets}x Até a Falha${restSuffix}`;
   }
   if (item.scheme_type === 'piramide') {
-    return `${typeLabel} • ${item.sets}x (${item.reps} ${unitSuffix})`;
+    return `${typeLabel} • ${item.sets}x (${item.reps} ${unitSuffix})${restSuffix}`;
   }
-  return `${typeLabel} • ${item.sets}x ${item.reps} ${unitSuffix}`;
+  return `${typeLabel} • ${item.sets}x ${item.reps} ${unitSuffix}${restSuffix}`;
 }
 
 const TOKEN_KEY = 'virafit_token';

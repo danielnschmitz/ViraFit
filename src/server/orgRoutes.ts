@@ -1312,13 +1312,14 @@ orgRouter.put('/workout-templates/:id', async (req: AuthRequest, res) => {
         const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
         const cleanRestTime = it.rest_time !== undefined && it.rest_time !== null ? String(it.rest_time).trim() : '';
         const cleanRestUnit = VALID_REST_UNITS.includes(it.rest_unit) ? it.rest_unit : 'seconds';
+        const cleanWeight = it.weight !== undefined && it.weight !== null ? String(it.weight).trim() : '';
         const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
 
         await client.query(
           `INSERT INTO workout_template_items (
             id, template_id, organization_id, position, exercise_id,
-            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, notes
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, weight, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
           [
             crypto.randomUUID(),
             id,
@@ -1333,6 +1334,7 @@ orgRouter.put('/workout-templates/:id', async (req: AuthRequest, res) => {
             cleanUnit,
             cleanRestTime || null,
             cleanRestUnit,
+            cleanWeight || null,
             it.notes || null,
           ]
         );

@@ -54,6 +54,7 @@ export interface Student {
   city?: string | null;
   state?: string | null;
   delivery_instructions?: string | null;
+  workouts_count?: number;
   created_at?: string;
 }
 
@@ -132,6 +133,17 @@ export interface WorkoutTemplate {
   name: string;
   student_group_id?: string | null;
   student_group_name: string;
+  items: WorkoutExerciseItem[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface StudentWorkout {
+  id: string;
+  organization_id: string;
+  student_id: string;
+  name: string;
+  notes?: string | null;
   items: WorkoutExerciseItem[];
   created_at?: string;
   updated_at?: string;

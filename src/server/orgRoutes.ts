@@ -176,9 +176,11 @@ orgRouter.get('/students', async (req: AuthRequest, res) => {
   try {
     const orgId = req.activeOrgId!;
     const result = await pool.query(
-      `SELECT * FROM students
-       WHERE organization_id = $1
-       ORDER BY name ASC`,
+      `SELECT s.*,
+              (SELECT COUNT(*)::int FROM student_workouts sw WHERE sw.student_id = s.id AND sw.organization_id = s.organization_id) AS workouts_count
+       FROM students s
+       WHERE s.organization_id = $1
+       ORDER BY s.name ASC`,
       [orgId]
     );
     res.json(result.rows);
@@ -1362,5 +1364,259 @@ orgRouter.delete('/workout-templates/:id', async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[WorkoutTemplates] Erro ao excluir template:', err);
     res.status(500).json({ error: 'Erro ao excluir template de treino.' });
+  }
+});
+
+// ============================================================================
+// 1.2 PROGRAMAÇÃO DE TREINOS DO ALUNO (Vinculados à Ficha do Aluno)
+// ============================================================================
+async function fetchStudentWorkoutsWithItems(
+  orgId: string,
+  studentId: string,
+  workoutId?: string
+) {
+  const params: any[] = [orgId, studentId];
+  let whereClause = `sw.organization_id = $1 AND sw.student_id = $2`;
+  if (workoutId) {
+    params.push(workoutId);
+    whereClause += ` AND sw.id = $3`;
+  }
+
+  const workoutsRes = await pool.query(
+    `SELECT sw.*
+     FROM student_workouts sw
+     WHERE ${whereClause}
+     ORDER BY sw.created_at ASC, sw.name ASC`,
+    params
+  );
+
+  if (workoutsRes.rows.length === 0) return [];
+
+  const workoutIds = workoutsRes.rows.map((r) => r.id);
+  const itemsRes = await pool.query(
+    `SELECT swi.*,
+            e.name AS exercise_name,
+            e.media_type,
+            e.media_url,
+            e.muscle_group_id,
+            mg.name AS muscle_group_name,
+            e.category_id,
+            ec.name AS category_name,
+            e.is_favorite
+     FROM student_workout_items swi
+     JOIN exercises e ON swi.exercise_id = e.id
+     JOIN muscle_groups mg ON e.muscle_group_id = mg.id
+     JOIN exercise_categories ec ON e.category_id = ec.id
+     WHERE swi.workout_id = ANY($1::varchar[])
+     ORDER BY swi.position ASC, swi.created_at ASC`,
+    [workoutIds]
+  );
+
+  const itemsByWorkout = new Map<string, any[]>();
+  for (const row of itemsRes.rows) {
+    const list = itemsByWorkout.get(row.workout_id) || [];
+    list.push(row);
+    itemsByWorkout.set(row.workout_id, list);
+  }
+
+  return workoutsRes.rows.map((wk) => ({
+    ...wk,
+    items: itemsByWorkout.get(wk.id) || [],
+  }));
+}
+
+orgRouter.get('/students/:studentId/workouts', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const studentId = String(req.params.studentId);
+    const workouts = await fetchStudentWorkoutsWithItems(orgId, studentId);
+    res.json(workouts);
+  } catch (err) {
+    console.error('[StudentWorkouts] Erro ao listar treinos do aluno:', err);
+    res.status(500).json({ error: 'Erro ao listar treinos do aluno.' });
+  }
+});
+
+orgRouter.post('/students/:studentId/workouts', async (req: AuthRequest, res) => {
+  const client = await pool.connect();
+  try {
+    const orgId = req.activeOrgId!;
+    const studentId = String(req.params.studentId);
+    const { name, notes, items } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'O Nome do treino é obrigatório.' });
+    }
+
+    const stCheck = await client.query(
+      `SELECT id FROM students WHERE id = $1 AND organization_id = $2`,
+      [studentId, orgId]
+    );
+    if (stCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Aluno não encontrado.' });
+    }
+
+    await client.query('BEGIN');
+
+    const workoutId = crypto.randomUUID();
+    await client.query(
+      `INSERT INTO student_workouts (id, organization_id, student_id, name, notes)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [workoutId, orgId, studentId, String(name).trim(), notes ? String(notes).trim() : null]
+    );
+
+    if (Array.isArray(items) && items.length > 0) {
+      for (let idx = 0; idx < items.length; idx++) {
+        const it = items[idx];
+        if (!it.exercise_id) continue;
+        const cleanType = VALID_SCHEME_TYPES.includes(it.scheme_type) ? it.scheme_type : 'series_retas';
+        const cleanSets = Math.max(1, parseInt(String(it.sets || 3), 10) || 3);
+        const cleanReps = String(it.reps || '10').trim() || '10';
+        const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
+        const cleanRestTime =
+          it.rest_time !== undefined && it.rest_time !== null ? String(it.rest_time).trim() : '';
+        const cleanRestUnit = VALID_REST_UNITS.includes(it.rest_unit) ? it.rest_unit : 'seconds';
+        const cleanWeight =
+          it.weight !== undefined && it.weight !== null ? String(it.weight).trim() : '';
+        const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
+
+        await client.query(
+          `INSERT INTO student_workout_items (
+            id, workout_id, organization_id, position, exercise_id,
+            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, weight, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          [
+            crypto.randomUUID(),
+            workoutId,
+            orgId,
+            idx,
+            it.exercise_id,
+            it.scheme_id || null,
+            cleanSchemeName,
+            cleanType,
+            cleanSets,
+            cleanReps,
+            cleanUnit,
+            cleanRestTime || null,
+            cleanRestUnit,
+            cleanWeight || null,
+            it.notes || null,
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    const created = await fetchStudentWorkoutsWithItems(orgId, studentId, workoutId);
+    res.status(201).json(created[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[StudentWorkouts] Erro ao criar treino do aluno:', err);
+    res.status(500).json({ error: 'Erro ao cadastrar treino do aluno.' });
+  } finally {
+    client.release();
+  }
+});
+
+orgRouter.put('/students/:studentId/workouts/:workoutId', async (req: AuthRequest, res) => {
+  const client = await pool.connect();
+  try {
+    const orgId = req.activeOrgId!;
+    const studentId = String(req.params.studentId);
+    const workoutId = String(req.params.workoutId);
+    const { name, notes, items } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'O Nome do treino é obrigatório.' });
+    }
+
+    const check = await client.query(
+      `SELECT id FROM student_workouts WHERE id = $1 AND student_id = $2 AND organization_id = $3`,
+      [workoutId, studentId, orgId]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Treino do aluno não encontrado.' });
+    }
+
+    await client.query('BEGIN');
+
+    await client.query(
+      `UPDATE student_workouts
+       SET name = $1, notes = $2, updated_at = NOW()
+       WHERE id = $3 AND student_id = $4 AND organization_id = $5`,
+      [String(name).trim(), notes ? String(notes).trim() : null, workoutId, studentId, orgId]
+    );
+
+    await client.query(
+      `DELETE FROM student_workout_items WHERE workout_id = $1 AND organization_id = $2`,
+      [workoutId, orgId]
+    );
+
+    if (Array.isArray(items) && items.length > 0) {
+      for (let idx = 0; idx < items.length; idx++) {
+        const it = items[idx];
+        if (!it.exercise_id) continue;
+        const cleanType = VALID_SCHEME_TYPES.includes(it.scheme_type) ? it.scheme_type : 'series_retas';
+        const cleanSets = Math.max(1, parseInt(String(it.sets || 3), 10) || 3);
+        const cleanReps = String(it.reps || '10').trim() || '10';
+        const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
+        const cleanRestTime =
+          it.rest_time !== undefined && it.rest_time !== null ? String(it.rest_time).trim() : '';
+        const cleanRestUnit = VALID_REST_UNITS.includes(it.rest_unit) ? it.rest_unit : 'seconds';
+        const cleanWeight =
+          it.weight !== undefined && it.weight !== null ? String(it.weight).trim() : '';
+        const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
+
+        await client.query(
+          `INSERT INTO student_workout_items (
+            id, workout_id, organization_id, position, exercise_id,
+            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, weight, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          [
+            crypto.randomUUID(),
+            workoutId,
+            orgId,
+            idx,
+            it.exercise_id,
+            it.scheme_id || null,
+            cleanSchemeName,
+            cleanType,
+            cleanSets,
+            cleanReps,
+            cleanUnit,
+            cleanRestTime || null,
+            cleanRestUnit,
+            cleanWeight || null,
+            it.notes || null,
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    const updated = await fetchStudentWorkoutsWithItems(orgId, studentId, workoutId);
+    res.json(updated[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[StudentWorkouts] Erro ao atualizar treino do aluno:', err);
+    res.status(500).json({ error: 'Erro ao atualizar treino do aluno.' });
+  } finally {
+    client.release();
+  }
+});
+
+orgRouter.delete('/students/:studentId/workouts/:workoutId', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const studentId = String(req.params.studentId);
+    const workoutId = String(req.params.workoutId);
+    await pool.query(
+      `DELETE FROM student_workouts WHERE id = $1 AND student_id = $2 AND organization_id = $3`,
+      [workoutId, studentId, orgId]
+    );
+    res.json({ message: 'Treino do aluno excluído com sucesso.' });
+  } catch (err) {
+    console.error('[StudentWorkouts] Erro ao excluir treino do aluno:', err);
+    res.status(500).json({ error: 'Erro ao excluir treino do aluno.' });
   }
 });

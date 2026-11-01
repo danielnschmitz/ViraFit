@@ -293,6 +293,35 @@ export async function initDatabase(): Promise<void> {
       ALTER TABLE workout_template_items ADD COLUMN IF NOT EXISTS rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds';
       ALTER TABLE workout_template_items ADD COLUMN IF NOT EXISTS weight VARCHAR(150);
 
+      CREATE TABLE IF NOT EXISTS student_workouts (
+        id VARCHAR(36) PRIMARY KEY,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        student_id VARCHAR(36) NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS student_workout_items (
+        id VARCHAR(36) PRIMARY KEY,
+        workout_id VARCHAR(36) NOT NULL REFERENCES student_workouts(id) ON DELETE CASCADE,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        exercise_id VARCHAR(36) NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+        scheme_id VARCHAR(36) REFERENCES exercise_schemes(id) ON DELETE SET NULL,
+        scheme_name VARCHAR(150) NOT NULL,
+        scheme_type VARCHAR(40) NOT NULL DEFAULT 'series_retas',
+        sets INTEGER NOT NULL DEFAULT 3,
+        reps VARCHAR(100) NOT NULL DEFAULT '10',
+        rep_unit VARCHAR(20) NOT NULL DEFAULT 'reps',
+        rest_time VARCHAR(30) DEFAULT '60',
+        rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds',
+        weight VARCHAR(150),
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_users_org ON users(organization_id);
       CREATE INDEX IF NOT EXISTS idx_students_org ON students(organization_id, name);
       CREATE INDEX IF NOT EXISTS idx_muscle_groups_org ON muscle_groups(organization_id, name);
@@ -301,6 +330,8 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_exercise_schemes_org ON exercise_schemes(organization_id);
       CREATE INDEX IF NOT EXISTS idx_workout_templates_org ON workout_templates(organization_id, name);
       CREATE INDEX IF NOT EXISTS idx_workout_template_items_tpl ON workout_template_items(template_id, position);
+      CREATE INDEX IF NOT EXISTS idx_student_workouts_student ON student_workouts(organization_id, student_id);
+      CREATE INDEX IF NOT EXISTS idx_student_workout_items_wk ON student_workout_items(workout_id, position);
     `);
 
     // Garantir criação do usuário Master padrão ('master' / 'admin123')

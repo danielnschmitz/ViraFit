@@ -177,7 +177,8 @@ orgRouter.get('/students', async (req: AuthRequest, res) => {
     const orgId = req.activeOrgId!;
     const result = await pool.query(
       `SELECT s.*,
-              (SELECT COUNT(*)::int FROM student_workouts sw WHERE sw.student_id = s.id AND sw.organization_id = s.organization_id) AS workouts_count
+              (SELECT COUNT(*)::int FROM student_workouts sw WHERE sw.student_id = s.id AND sw.organization_id = s.organization_id) AS workouts_count,
+              (SELECT COUNT(*)::int FROM student_scheduled_workouts ssw WHERE ssw.student_id = s.id AND ssw.organization_id = s.organization_id) AS scheduled_workouts_count
        FROM students s
        WHERE s.organization_id = $1
        ORDER BY s.name ASC`,
@@ -200,6 +201,7 @@ orgRouter.post('/students', async (req: AuthRequest, res) => {
       gender,
       group_id,
       group_name,
+      schedule_type,
       notes,
       email,
       zip_code,
@@ -274,12 +276,14 @@ orgRouter.post('/students', async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'O Grupo do aluno é obrigatório.' });
     }
 
+    const cleanScheduleType = schedule_type === 'sequence' ? 'sequence' : 'fixed_days';
+
     const id = crypto.randomUUID();
     const result = await pool.query(
       `INSERT INTO students (
-        id, organization_id, name, document, phone, gender, group_id, group_name,
+        id, organization_id, name, document, phone, gender, group_id, group_name, schedule_type,
         notes, email, zip_code, street, neighborhood, city, state, delivery_instructions
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING *`,
       [
         id,
@@ -290,6 +294,7 @@ orgRouter.post('/students', async (req: AuthRequest, res) => {
         gender,
         resolvedGroupId,
         resolvedGroupName,
+        cleanScheduleType,
         notes || null,
         email || null,
         zip_code || null,
@@ -319,6 +324,7 @@ orgRouter.put('/students/:id', async (req: AuthRequest, res) => {
       gender,
       group_id,
       group_name,
+      schedule_type,
       notes,
       email,
       zip_code,
@@ -375,13 +381,15 @@ orgRouter.put('/students/:id', async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'O Grupo do aluno é obrigatório.' });
     }
 
+    const cleanScheduleType = schedule_type === 'sequence' ? 'sequence' : 'fixed_days';
+
     const result = await pool.query(
       `UPDATE students SET
         name = $1, document = $2, phone = $3, gender = $4,
-        group_id = $5, group_name = $6, notes = $7, email = $8,
-        zip_code = $9, street = $10, neighborhood = $11, city = $12, state = $13,
-        delivery_instructions = $14, updated_at = NOW()
-       WHERE id = $15 AND organization_id = $16
+        group_id = $5, group_name = $6, schedule_type = $7, notes = $8, email = $9,
+        zip_code = $10, street = $11, neighborhood = $12, city = $13, state = $14,
+        delivery_instructions = $15, updated_at = NOW()
+       WHERE id = $16 AND organization_id = $17
        RETURNING *`,
       [
         name.trim(),
@@ -390,6 +398,7 @@ orgRouter.put('/students/:id', async (req: AuthRequest, res) => {
         gender,
         resolvedGroupId,
         resolvedGroupName,
+        cleanScheduleType,
         notes || null,
         email || null,
         zip_code || null,
@@ -1618,5 +1627,355 @@ orgRouter.delete('/students/:studentId/workouts/:workoutId', async (req: AuthReq
   } catch (err) {
     console.error('[StudentWorkouts] Erro ao excluir treino do aluno:', err);
     res.status(500).json({ error: 'Erro ao excluir treino do aluno.' });
+  }
+});
+
+/* ==========================================================================
+   AGENDA DE TREINOS DO ALUNO (Scheduled Workouts: fixed_days & sequence)
+   ========================================================================== */
+
+async function fetchStudentScheduledWorkoutsWithItems(
+  orgId: string,
+  studentId: string,
+  scheduledWorkoutId?: string
+) {
+  const params: any[] = [orgId, studentId];
+  let whereClause = `ssw.organization_id = $1 AND ssw.student_id = $2`;
+
+  if (scheduledWorkoutId) {
+    params.push(scheduledWorkoutId);
+    whereClause += ` AND ssw.id = $3`;
+  }
+
+  const workoutsRes = await pool.query(
+    `SELECT ssw.*
+     FROM student_scheduled_workouts ssw
+     WHERE ${whereClause}
+     ORDER BY ssw.schedule_type ASC, ssw.day_of_week ASC NULLS LAST, ssw.sequence_order ASC NULLS LAST, ssw.created_at ASC`,
+    params
+  );
+
+  if (workoutsRes.rows.length === 0) return [];
+
+  const workoutIds = workoutsRes.rows.map((r) => r.id);
+  const itemsRes = await pool.query(
+    `SELECT sswi.*,
+            e.name AS exercise_name,
+            e.media_type,
+            e.media_url,
+            e.muscle_group_id,
+            mg.name AS muscle_group_name,
+            e.category_id,
+            ec.name AS category_name,
+            e.is_favorite
+     FROM student_scheduled_workout_items sswi
+     JOIN exercises e ON sswi.exercise_id = e.id
+     JOIN muscle_groups mg ON e.muscle_group_id = mg.id
+     JOIN exercise_categories ec ON e.category_id = ec.id
+     WHERE sswi.scheduled_workout_id = ANY($1::varchar[])
+     ORDER BY sswi.position ASC, sswi.created_at ASC`,
+    [workoutIds]
+  );
+
+  const itemsByWorkout = new Map<string, any[]>();
+  for (const row of itemsRes.rows) {
+    const list = itemsByWorkout.get(row.scheduled_workout_id) || [];
+    list.push(row);
+    itemsByWorkout.set(row.scheduled_workout_id, list);
+  }
+
+  return workoutsRes.rows.map((wk) => ({
+    ...wk,
+    items: itemsByWorkout.get(wk.id) || [],
+  }));
+}
+
+orgRouter.get('/students/:studentId/scheduled-workouts', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const studentId = String(req.params.studentId);
+    const workouts = await fetchStudentScheduledWorkoutsWithItems(orgId, studentId);
+    res.json(workouts);
+  } catch (err) {
+    console.error('[StudentScheduledWorkouts] Erro ao listar treinos agendados do aluno:', err);
+    res.status(500).json({ error: 'Erro ao listar treinos agendados do aluno.' });
+  }
+});
+
+orgRouter.post('/students/:studentId/scheduled-workouts', async (req: AuthRequest, res) => {
+  const client = await pool.connect();
+  try {
+    const orgId = req.activeOrgId!;
+    const studentId = String(req.params.studentId);
+    const {
+      name,
+      notes,
+      schedule_type,
+      days_of_week,
+      day_of_week,
+      sequence_order,
+      start_date,
+      end_date,
+      items,
+    } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'O Nome do treino é obrigatório.' });
+    }
+
+    const cleanScheduleType = schedule_type === 'sequence' ? 'sequence' : 'fixed_days';
+    const cleanStartDate = start_date && String(start_date).trim() ? String(start_date).trim() : null;
+    const cleanEndDate = end_date && String(end_date).trim() ? String(end_date).trim() : null;
+
+    await client.query('BEGIN');
+
+    // Suporte para múltiplos dias se for 'fixed_days' e days_of_week for array não-vazio
+    const targetDays: (number | null)[] = [];
+    if (cleanScheduleType === 'fixed_days') {
+      if (Array.isArray(days_of_week) && days_of_week.length > 0) {
+        for (const d of days_of_week) {
+          const num = parseInt(String(d), 10);
+          if (!isNaN(num) && num >= 0 && num <= 6) {
+            targetDays.push(num);
+          }
+        }
+      } else if (day_of_week !== undefined && day_of_week !== null && day_of_week !== '') {
+        const num = parseInt(String(day_of_week), 10);
+        if (!isNaN(num) && num >= 0 && num <= 6) {
+          targetDays.push(num);
+        }
+      }
+      if (targetDays.length === 0) {
+        // Padrão: Segunda-feira (1) caso não fornecido
+        targetDays.push(1);
+      }
+    } else {
+      targetDays.push(null);
+    }
+
+    // Se for sequence, calcular o próximo sequence_order caso não fornecido
+    let targetSeq = parseInt(String(sequence_order), 10);
+    if (isNaN(targetSeq) || targetSeq < 1) {
+      const maxSeqRes = await client.query(
+        `SELECT COALESCE(MAX(sequence_order), 0) + 1 AS next_seq
+         FROM student_scheduled_workouts
+         WHERE organization_id = $1 AND student_id = $2 AND schedule_type = 'sequence'`,
+        [orgId, studentId]
+      );
+      targetSeq = parseInt(maxSeqRes.rows[0].next_seq, 10) || 1;
+    }
+
+    const createdIds: string[] = [];
+
+    for (let dayIdx = 0; dayIdx < targetDays.length; dayIdx++) {
+      const currentDay = targetDays[dayIdx];
+      const scheduledWorkoutId = crypto.randomUUID();
+      createdIds.push(scheduledWorkoutId);
+
+      await client.query(
+        `INSERT INTO student_scheduled_workouts (
+          id, organization_id, student_id, name, notes, schedule_type, day_of_week, sequence_order, start_date, end_date
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          scheduledWorkoutId,
+          orgId,
+          studentId,
+          String(name).trim(),
+          notes ? String(notes).trim() : null,
+          cleanScheduleType,
+          currentDay,
+          cleanScheduleType === 'sequence' ? targetSeq : null,
+          cleanStartDate,
+          cleanEndDate,
+        ]
+      );
+
+      if (Array.isArray(items) && items.length > 0) {
+        for (let idx = 0; idx < items.length; idx++) {
+          const it = items[idx];
+          if (!it.exercise_id) continue;
+          const cleanType = VALID_SCHEME_TYPES.includes(it.scheme_type) ? it.scheme_type : 'series_retas';
+          const cleanSets = Math.max(1, parseInt(String(it.sets || 3), 10) || 3);
+          const cleanReps = String(it.reps || '10').trim() || '10';
+          const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
+          const cleanRestTime =
+            it.rest_time !== undefined && it.rest_time !== null ? String(it.rest_time).trim() : '';
+          const cleanRestUnit = VALID_REST_UNITS.includes(it.rest_unit) ? it.rest_unit : 'seconds';
+          const cleanWeight =
+            it.weight !== undefined && it.weight !== null ? String(it.weight).trim() : '';
+          const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
+
+          await client.query(
+            `INSERT INTO student_scheduled_workout_items (
+              id, scheduled_workout_id, organization_id, position, exercise_id,
+              scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, weight, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            [
+              crypto.randomUUID(),
+              scheduledWorkoutId,
+              orgId,
+              idx,
+              it.exercise_id,
+              it.scheme_id || null,
+              cleanSchemeName,
+              cleanType,
+              cleanSets,
+              cleanReps,
+              cleanUnit,
+              cleanRestTime || null,
+              cleanRestUnit,
+              cleanWeight || null,
+              it.notes || null,
+            ]
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    const createdList = await fetchStudentScheduledWorkoutsWithItems(orgId, studentId, createdIds[0]);
+    res.status(201).json(createdList[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[StudentScheduledWorkouts] Erro ao criar treino agendado do aluno:', err);
+    res.status(500).json({ error: 'Erro ao agendar treino do aluno.' });
+  } finally {
+    client.release();
+  }
+});
+
+orgRouter.put('/students/:studentId/scheduled-workouts/:id', async (req: AuthRequest, res) => {
+  const client = await pool.connect();
+  try {
+    const orgId = req.activeOrgId!;
+    const studentId = String(req.params.studentId);
+    const scheduledWorkoutId = String(req.params.id);
+    const {
+      name,
+      notes,
+      schedule_type,
+      day_of_week,
+      sequence_order,
+      start_date,
+      end_date,
+      items,
+    } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'O Nome do treino é obrigatório.' });
+    }
+
+    const check = await client.query(
+      `SELECT id FROM student_scheduled_workouts WHERE id = $1 AND student_id = $2 AND organization_id = $3`,
+      [scheduledWorkoutId, studentId, orgId]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Treino agendado não encontrado.' });
+    }
+
+    const cleanScheduleType = schedule_type === 'sequence' ? 'sequence' : 'fixed_days';
+    const cleanDay =
+      cleanScheduleType === 'fixed_days' && day_of_week !== undefined && day_of_week !== null
+        ? Math.min(6, Math.max(0, parseInt(String(day_of_week), 10)))
+        : null;
+    const cleanSeq =
+      cleanScheduleType === 'sequence' && sequence_order !== undefined && sequence_order !== null
+        ? Math.max(1, parseInt(String(sequence_order), 10))
+        : null;
+    const cleanStartDate = start_date && String(start_date).trim() ? String(start_date).trim() : null;
+    const cleanEndDate = end_date && String(end_date).trim() ? String(end_date).trim() : null;
+
+    await client.query('BEGIN');
+
+    await client.query(
+      `UPDATE student_scheduled_workouts
+       SET name = $1, notes = $2, schedule_type = $3, day_of_week = $4, sequence_order = $5,
+           start_date = $6, end_date = $7, updated_at = NOW()
+       WHERE id = $8 AND student_id = $9 AND organization_id = $10`,
+      [
+        String(name).trim(),
+        notes ? String(notes).trim() : null,
+        cleanScheduleType,
+        cleanDay,
+        cleanSeq,
+        cleanStartDate,
+        cleanEndDate,
+        scheduledWorkoutId,
+        studentId,
+        orgId,
+      ]
+    );
+
+    await client.query(
+      `DELETE FROM student_scheduled_workout_items WHERE scheduled_workout_id = $1 AND organization_id = $2`,
+      [scheduledWorkoutId, orgId]
+    );
+
+    if (Array.isArray(items) && items.length > 0) {
+      for (let idx = 0; idx < items.length; idx++) {
+        const it = items[idx];
+        if (!it.exercise_id) continue;
+        const cleanType = VALID_SCHEME_TYPES.includes(it.scheme_type) ? it.scheme_type : 'series_retas';
+        const cleanSets = Math.max(1, parseInt(String(it.sets || 3), 10) || 3);
+        const cleanReps = String(it.reps || '10').trim() || '10';
+        const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
+        const cleanRestTime =
+          it.rest_time !== undefined && it.rest_time !== null ? String(it.rest_time).trim() : '';
+        const cleanRestUnit = VALID_REST_UNITS.includes(it.rest_unit) ? it.rest_unit : 'seconds';
+        const cleanWeight =
+          it.weight !== undefined && it.weight !== null ? String(it.weight).trim() : '';
+        const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
+
+        await client.query(
+          `INSERT INTO student_scheduled_workout_items (
+            id, scheduled_workout_id, organization_id, position, exercise_id,
+            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, weight, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+          [
+            crypto.randomUUID(),
+            scheduledWorkoutId,
+            orgId,
+            idx,
+            it.exercise_id,
+            it.scheme_id || null,
+            cleanSchemeName,
+            cleanType,
+            cleanSets,
+            cleanReps,
+            cleanUnit,
+            cleanRestTime || null,
+            cleanRestUnit,
+            cleanWeight || null,
+            it.notes || null,
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    const updated = await fetchStudentScheduledWorkoutsWithItems(orgId, studentId, scheduledWorkoutId);
+    res.json(updated[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[StudentScheduledWorkouts] Erro ao atualizar treino agendado do aluno:', err);
+    res.status(500).json({ error: 'Erro ao atualizar treino agendado do aluno.' });
+  } finally {
+    client.release();
+  }
+});
+
+orgRouter.delete('/students/:studentId/scheduled-workouts/:id', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const studentId = String(req.params.studentId);
+    const scheduledWorkoutId = String(req.params.id);
+    await pool.query(
+      `DELETE FROM student_scheduled_workouts WHERE id = $1 AND student_id = $2 AND organization_id = $3`,
+      [scheduledWorkoutId, studentId, orgId]
+    );
+    res.json({ message: 'Treino agendado excluído com sucesso.' });
+  } catch (err) {
+    console.error('[StudentScheduledWorkouts] Erro ao excluir treino agendado do aluno:', err);
+    res.status(500).json({ error: 'Erro ao excluir treino agendado do aluno.' });
   }
 });

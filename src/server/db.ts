@@ -201,6 +201,7 @@ export async function initDatabase(): Promise<void> {
         gender VARCHAR(30) NOT NULL, -- 'Masculino', 'Feminino', 'Outro'
         group_id VARCHAR(36) REFERENCES student_groups(id) ON DELETE SET NULL,
         group_name VARCHAR(150) NOT NULL,
+        schedule_type VARCHAR(30) NOT NULL DEFAULT 'fixed_days', -- 'fixed_days', 'sequence'
         notes TEXT,
         email VARCHAR(255),
         zip_code VARCHAR(30),
@@ -212,6 +213,8 @@ export async function initDatabase(): Promise<void> {
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      ALTER TABLE students ADD COLUMN IF NOT EXISTS schedule_type VARCHAR(30) NOT NULL DEFAULT 'fixed_days';
 
       CREATE TABLE IF NOT EXISTS muscle_groups (
         id VARCHAR(36) PRIMARY KEY,
@@ -322,6 +325,40 @@ export async function initDatabase(): Promise<void> {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS student_scheduled_workouts (
+        id VARCHAR(36) PRIMARY KEY,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        student_id VARCHAR(36) NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        notes TEXT,
+        schedule_type VARCHAR(30) NOT NULL DEFAULT 'fixed_days', -- 'fixed_days', 'sequence'
+        day_of_week INTEGER, -- 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
+        sequence_order INTEGER DEFAULT 1,
+        start_date VARCHAR(20),
+        end_date VARCHAR(20),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS student_scheduled_workout_items (
+        id VARCHAR(36) PRIMARY KEY,
+        scheduled_workout_id VARCHAR(36) NOT NULL REFERENCES student_scheduled_workouts(id) ON DELETE CASCADE,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        exercise_id VARCHAR(36) NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+        scheme_id VARCHAR(36) REFERENCES exercise_schemes(id) ON DELETE SET NULL,
+        scheme_name VARCHAR(150) NOT NULL,
+        scheme_type VARCHAR(40) NOT NULL DEFAULT 'series_retas',
+        sets INTEGER NOT NULL DEFAULT 3,
+        reps VARCHAR(100) NOT NULL DEFAULT '10',
+        rep_unit VARCHAR(20) NOT NULL DEFAULT 'reps',
+        rest_time VARCHAR(30) DEFAULT '60',
+        rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds',
+        weight VARCHAR(150),
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_users_org ON users(organization_id);
       CREATE INDEX IF NOT EXISTS idx_students_org ON students(organization_id, name);
       CREATE INDEX IF NOT EXISTS idx_muscle_groups_org ON muscle_groups(organization_id, name);
@@ -332,6 +369,8 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_workout_template_items_tpl ON workout_template_items(template_id, position);
       CREATE INDEX IF NOT EXISTS idx_student_workouts_student ON student_workouts(organization_id, student_id);
       CREATE INDEX IF NOT EXISTS idx_student_workout_items_wk ON student_workout_items(workout_id, position);
+      CREATE INDEX IF NOT EXISTS idx_student_scheduled_wk_student ON student_scheduled_workouts(organization_id, student_id);
+      CREATE INDEX IF NOT EXISTS idx_student_scheduled_items_wk ON student_scheduled_workout_items(scheduled_workout_id, position);
     `);
 
     // Garantir criação do usuário Master padrão ('master' / 'admin123')

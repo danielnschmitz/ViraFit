@@ -1,15 +1,24 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Calendar,
+  CheckCircle2,
+  ChevronRight,
   ClipboardList,
+  Clock,
   Copy,
   Dumbbell,
   FileText,
+  Layers,
   Mail,
   MapPin,
   Pencil,
   Phone,
   Plus,
+  Repeat,
   Search,
   Sparkles,
   Trash2,
@@ -17,10 +26,14 @@ import {
   Users,
 } from 'lucide-react';
 import {
+  DAYS_OF_WEEK,
+  DAYS_OF_WEEK_SHORT,
   Organization,
   SCHEME_TYPES_INFO,
+  ScheduleType,
   Student,
   StudentGroup,
+  StudentScheduledWorkout,
   StudentWorkout,
   WorkoutExerciseItem,
   WorkoutTemplate,
@@ -52,6 +65,7 @@ const emptyStudent = {
   gender: 'Masculino' as Student['gender'],
   group_id: '',
   group_name: 'Presencial',
+  schedule_type: 'fixed_days' as ScheduleType,
   notes: '',
   email: '',
   zip_code: '',
@@ -61,6 +75,16 @@ const emptyStudent = {
   state: '',
   delivery_instructions: '',
 };
+
+function formatDatePtBr(isoDate?: string | null): string {
+  if (!isoDate) return '';
+  const clean = isoDate.split('T')[0];
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return isoDate;
+}
 
 export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
   const [students, setStudents] = useState<Student[]>([]);
@@ -79,19 +103,39 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
   const [newGroupName, setNewGroupName] = useState('');
   const [savingGroup, setSavingGroup] = useState(false);
 
-  // Ficha do Aluno Selecionado e Programação de Treinos
+  // Ficha do Aluno Selecionado
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [studentTab, setStudentTab] = useState<'agenda' | 'free_workouts'>('agenda');
   const [studentWorkouts, setStudentWorkouts] = useState<StudentWorkout[]>([]);
+  const [scheduledWorkouts, setScheduledWorkouts] = useState<StudentScheduledWorkout[]>([]);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
-  const [loadingWorkouts, setLoadingWorkouts] = useState(false);
+  const [loadingStudentData, setLoadingStudentData] = useState(false);
 
-  // Criação / Edição de Treino do Aluno
+  // Criação / Edição de Treino Livre do Aluno
   const [editingWorkout, setEditingWorkout] = useState<StudentWorkout | 'new' | null>(null);
   const [workoutName, setWorkoutName] = useState('');
   const [workoutNotes, setWorkoutNotes] = useState('');
   const [workoutItems, setWorkoutItems] = useState<WorkoutExerciseItem[]>([]);
   const [selectedTemplateToImport, setSelectedTemplateToImport] = useState('');
   const [savingWorkout, setSavingWorkout] = useState(false);
+
+  // Criação / Edição de Treino Agendado do Aluno
+  const [editingScheduled, setEditingScheduled] = useState<StudentScheduledWorkout | 'new' | null>(
+    null
+  );
+  const [scheduledName, setScheduledName] = useState('');
+  const [scheduledNotes, setScheduledNotes] = useState('');
+  const [scheduledDaysOfWeek, setScheduledDaysOfWeek] = useState<number[]>([1]); // Segunda por padrão
+  const [scheduledSequenceOrder, setScheduledSequenceOrder] = useState<number>(1);
+  const [scheduledStartDate, setScheduledStartDate] = useState('');
+  const [scheduledEndDate, setScheduledEndDate] = useState('');
+  const [scheduledItems, setScheduledItems] = useState<WorkoutExerciseItem[]>([]);
+  const [scheduledSourceType, setScheduledSourceType] = useState<
+    'new' | 'template' | 'student_workout'
+  >('new');
+  const [selectedTemplateForScheduled, setSelectedTemplateForScheduled] = useState('');
+  const [selectedStudentWorkoutForScheduled, setSelectedStudentWorkoutForScheduled] = useState('');
+  const [savingScheduled, setSavingScheduled] = useState(false);
 
   const selectedStudent = useMemo(
     () => students.find((s) => s.id === selectedStudentId) || null,
@@ -114,19 +158,21 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
     }
   };
 
-  const loadStudentWorkouts = async (studentId: string) => {
-    setLoadingWorkouts(true);
+  const loadStudentDetails = async (studentId: string) => {
+    setLoadingStudentData(true);
     try {
-      const [wkRes, tplRes] = await Promise.all([
+      const [wkRes, scheduledRes, tplRes] = await Promise.all([
         apiFetch<StudentWorkout[]>(`/api/org/students/${studentId}/workouts`),
+        apiFetch<StudentScheduledWorkout[]>(`/api/org/students/${studentId}/scheduled-workouts`),
         apiFetch<WorkoutTemplate[]>('/api/org/workout-templates'),
       ]);
       setStudentWorkouts(wkRes);
+      setScheduledWorkouts(scheduledRes);
       setTemplates(tplRes);
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setLoadingWorkouts(false);
+      setLoadingStudentData(false);
     }
   };
 
@@ -136,7 +182,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
 
   useEffect(() => {
     if (selectedStudentId) {
-      loadStudentWorkouts(selectedStudentId);
+      loadStudentDetails(selectedStudentId);
     }
   }, [selectedStudentId]);
 
@@ -164,6 +210,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
         ...emptyStudent,
         group_id: defaultGroup?.id || '',
         group_name: defaultGroup?.name || 'Presencial',
+        schedule_type: 'fixed_days',
       });
     } else {
       const matchedGroup = groups.find(
@@ -176,6 +223,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
         gender: s.gender || 'Masculino',
         group_id: matchedGroup?.id || s.group_id || '',
         group_name: matchedGroup?.name || s.group_name || 'Presencial',
+        schedule_type: s.schedule_type || 'fixed_days',
         notes: s.notes || '',
         email: s.email || '',
         zip_code: s.zip_code || '',
@@ -271,7 +319,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
     }
   };
 
-  /* -------------------- Lógica de Treinos do Aluno -------------------- */
+  /* -------------------- Treinos Livres do Aluno -------------------- */
   const startNewStudentWorkout = () => {
     setError(null);
     setEditingWorkout('new');
@@ -332,7 +380,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
       }
 
       setEditingWorkout(null);
-      await Promise.all([loadStudentWorkouts(selectedStudent.id), loadData()]);
+      await Promise.all([loadStudentDetails(selectedStudent.id), loadData()]);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -352,7 +400,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
           items: wk.items,
         }),
       });
-      await Promise.all([loadStudentWorkouts(selectedStudent.id), loadData()]);
+      await Promise.all([loadStudentDetails(selectedStudent.id), loadData()]);
     } catch (err: any) {
       setError(err.message);
     }
@@ -360,22 +408,286 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
 
   const handleDeleteStudentWorkout = async (wk: StudentWorkout) => {
     if (!selectedStudent) return;
-    if (!window.confirm(`Deseja realmente excluir o treino "${wk.name}" deste aluno?`)) return;
+    if (!window.confirm(`Deseja realmente excluir o treino livre "${wk.name}" deste aluno?`)) return;
     setError(null);
     try {
       await apiFetch(`/api/org/students/${selectedStudent.id}/workouts/${wk.id}`, {
         method: 'DELETE',
       });
-      await Promise.all([loadStudentWorkouts(selectedStudent.id), loadData()]);
+      await Promise.all([loadStudentDetails(selectedStudent.id), loadData()]);
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  const set = (k: keyof typeof form, v: string) => setForm({ ...form, [k]: v });
+  /* -------------------- Treinos Agendados do Aluno -------------------- */
+  const startNewScheduledWorkout = (preselectedDay?: number) => {
+    setError(null);
+    setEditingScheduled('new');
+    setScheduledName('');
+    setScheduledNotes('');
+    setScheduledStartDate('');
+    setScheduledEndDate('');
+    setScheduledItems([]);
+    setScheduledSourceType('new');
+    setSelectedTemplateForScheduled('');
+    setSelectedStudentWorkoutForScheduled('');
+
+    if (selectedStudent?.schedule_type === 'sequence') {
+      const nextSeq =
+        scheduledWorkouts.length > 0
+          ? Math.max(...scheduledWorkouts.map((w) => w.sequence_order || 1)) + 1
+          : 1;
+      setScheduledSequenceOrder(nextSeq);
+      setScheduledDaysOfWeek([]);
+    } else {
+      setScheduledDaysOfWeek(preselectedDay !== undefined ? [preselectedDay] : [1]);
+    }
+  };
+
+  const startEditScheduledWorkout = (swk: StudentScheduledWorkout) => {
+    setError(null);
+    setEditingScheduled(swk);
+    setScheduledName(swk.name);
+    setScheduledNotes(swk.notes || '');
+    setScheduledStartDate(swk.start_date || '');
+    setScheduledEndDate(swk.end_date || '');
+    setScheduledItems(swk.items.map((i) => ({ ...i })));
+    setScheduledSourceType('new');
+    setSelectedTemplateForScheduled('');
+    setSelectedStudentWorkoutForScheduled('');
+
+    if (swk.schedule_type === 'sequence') {
+      setScheduledSequenceOrder(swk.sequence_order || 1);
+      setScheduledDaysOfWeek([]);
+    } else {
+      setScheduledDaysOfWeek(
+        swk.day_of_week !== undefined && swk.day_of_week !== null ? [swk.day_of_week] : [1]
+      );
+    }
+  };
+
+  const handleScheduledSourceChange = (
+    type: 'new' | 'template' | 'student_workout',
+    sourceId?: string
+  ) => {
+    setScheduledSourceType(type);
+    if (type === 'new') {
+      return;
+    }
+    if (type === 'template' && sourceId) {
+      setSelectedTemplateForScheduled(sourceId);
+      const tpl = templates.find((t) => t.id === sourceId);
+      if (tpl) {
+        if (!scheduledName.trim() || scheduledSourceType !== 'template') {
+          setScheduledName(tpl.name);
+        }
+        setScheduledItems(tpl.items.map((i) => ({ ...i })));
+      }
+    } else if (type === 'student_workout' && sourceId) {
+      setSelectedStudentWorkoutForScheduled(sourceId);
+      const wk = studentWorkouts.find((w) => w.id === sourceId);
+      if (wk) {
+        if (!scheduledName.trim() || scheduledSourceType !== 'student_workout') {
+          setScheduledName(wk.name);
+        }
+        setScheduledNotes(wk.notes || '');
+        setScheduledItems(wk.items.map((i) => ({ ...i })));
+      }
+    }
+  };
+
+  const handleToggleScheduledDay = (dayIndex: number) => {
+    setScheduledDaysOfWeek((prev) => {
+      if (prev.includes(dayIndex)) {
+        if (editingScheduled && editingScheduled !== 'new' && prev.length === 1) {
+          return prev;
+        }
+        if (prev.length === 1) return prev;
+        return prev.filter((d) => d !== dayIndex);
+      } else {
+        if (editingScheduled && editingScheduled !== 'new') {
+          return [dayIndex];
+        }
+        return [...prev, dayIndex].sort((a, b) => a - b);
+      }
+    });
+  };
+
+  const handleSaveScheduledWorkout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudent) return;
+    setError(null);
+
+    if (!scheduledName.trim()) {
+      setError('O Nome do treino agendado é obrigatório.');
+      return;
+    }
+
+    const currentScheduleType = selectedStudent.schedule_type || 'fixed_days';
+
+    if (currentScheduleType === 'fixed_days' && scheduledDaysOfWeek.length === 0) {
+      setError('Selecione pelo menos um dia da semana para o treino.');
+      return;
+    }
+
+    setSavingScheduled(true);
+    try {
+      const payload: any = {
+        name: scheduledName.trim(),
+        notes: scheduledNotes.trim() || null,
+        schedule_type: currentScheduleType,
+        start_date: scheduledStartDate.trim() || null,
+        end_date: scheduledEndDate.trim() || null,
+        items: scheduledItems,
+      };
+
+      if (currentScheduleType === 'fixed_days') {
+        if (editingScheduled && editingScheduled !== 'new') {
+          payload.day_of_week = scheduledDaysOfWeek[0];
+        } else {
+          payload.days_of_week = scheduledDaysOfWeek;
+        }
+      } else {
+        payload.sequence_order = scheduledSequenceOrder || 1;
+      }
+
+      if (editingScheduled && editingScheduled !== 'new') {
+        await apiFetch(
+          `/api/org/students/${selectedStudent.id}/scheduled-workouts/${editingScheduled.id}`,
+          {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+          }
+        );
+      } else {
+        await apiFetch(`/api/org/students/${selectedStudent.id}/scheduled-workouts`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      }
+
+      setEditingScheduled(null);
+      await Promise.all([loadStudentDetails(selectedStudent.id), loadData()]);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSavingScheduled(false);
+    }
+  };
+
+  const handleDeleteScheduledWorkout = async (swk: StudentScheduledWorkout) => {
+    if (!selectedStudent) return;
+    if (!window.confirm(`Deseja realmente excluir o treino agendado "${swk.name}"?`)) return;
+    setError(null);
+    try {
+      await apiFetch(`/api/org/students/${selectedStudent.id}/scheduled-workouts/${swk.id}`, {
+        method: 'DELETE',
+      });
+      await Promise.all([loadStudentDetails(selectedStudent.id), loadData()]);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleDuplicateScheduledWorkout = async (swk: StudentScheduledWorkout) => {
+    if (!selectedStudent) return;
+    setError(null);
+    try {
+      const payload: any = {
+        name: `${swk.name} (Cópia)`,
+        notes: swk.notes || null,
+        schedule_type: swk.schedule_type,
+        start_date: swk.start_date || null,
+        end_date: swk.end_date || null,
+        items: swk.items,
+      };
+
+      if (swk.schedule_type === 'sequence') {
+        const nextSeq =
+          scheduledWorkouts.length > 0
+            ? Math.max(...scheduledWorkouts.map((w) => w.sequence_order || 1)) + 1
+            : 1;
+        payload.sequence_order = nextSeq;
+      } else {
+        payload.day_of_week = swk.day_of_week;
+      }
+
+      await apiFetch(`/api/org/students/${selectedStudent.id}/scheduled-workouts`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      await Promise.all([loadStudentDetails(selectedStudent.id), loadData()]);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleMoveSequenceOrder = async (
+    swk: StudentScheduledWorkout,
+    direction: 'up' | 'down'
+  ) => {
+    if (!selectedStudent) return;
+    const sorted = [...scheduledWorkouts].sort(
+      (a, b) => (a.sequence_order || 1) - (b.sequence_order || 1)
+    );
+    const currentIndex = sorted.findIndex((w) => w.id === swk.id);
+    if (currentIndex < 0) return;
+
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= sorted.length) return;
+
+    const targetItem = sorted[targetIndex];
+    const currentOrder = swk.sequence_order || currentIndex + 1;
+    const targetOrder = targetItem.sequence_order || targetIndex + 1;
+
+    try {
+      await Promise.all([
+        apiFetch(`/api/org/students/${selectedStudent.id}/scheduled-workouts/${swk.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: swk.name,
+            notes: swk.notes,
+            schedule_type: 'sequence',
+            sequence_order: targetOrder,
+            start_date: swk.start_date,
+            end_date: swk.end_date,
+            items: swk.items,
+          }),
+        }),
+        apiFetch(`/api/org/students/${selectedStudent.id}/scheduled-workouts/${targetItem.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: targetItem.name,
+            notes: targetItem.notes,
+            schedule_type: 'sequence',
+            sequence_order: currentOrder,
+            start_date: targetItem.start_date,
+            end_date: targetItem.end_date,
+            items: targetItem.items,
+          }),
+        }),
+      ]);
+      await loadStudentDetails(selectedStudent.id);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleScheduleFreeWorkout = (wk: StudentWorkout) => {
+    startNewScheduledWorkout();
+    setScheduledName(wk.name);
+    setScheduledNotes(wk.notes || '');
+    setScheduledItems(wk.items.map((i) => ({ ...i })));
+    setScheduledSourceType('student_workout');
+    setSelectedStudentWorkoutForScheduled(wk.id);
+    setStudentTab('agenda');
+  };
+
+  const set = (k: keyof typeof form, v: any) => setForm({ ...form, [k]: v });
 
   /* =========================================================================
-     MODAL DE EDIÇÃO DE DADOS DO ALUNO E GRUPO (Compartilhado)
+     MODAL DE EDIÇÃO DE DADOS DO ALUNO E GRUPO
      ========================================================================= */
   const studentModals = (
     <>
@@ -448,6 +760,66 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
                 }}
               />
             </Field>
+
+            {/* SELEÇÃO DO FORMATO DE AGENDA DE TREINOS DO ALUNO */}
+            <div className="sm:col-span-6 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                Formato de Agenda de Treinos *
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label
+                  className={`p-3.5 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                    form.schedule_type === 'fixed_days'
+                      ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 dark:border-emerald-500 ring-1 ring-emerald-500'
+                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="schedule_type"
+                    value="fixed_days"
+                    checked={form.schedule_type === 'fixed_days'}
+                    onChange={() => set('schedule_type', 'fixed_days')}
+                    className="mt-1 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <div>
+                    <div className="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      Dias Fixos da Semana
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      O personal define os dias exatos em que cada treino deve acontecer na semana do aluno (ex: Segundas, Quartas e Sextas).
+                    </p>
+                  </div>
+                </label>
+
+                <label
+                  className={`p-3.5 rounded-xl border cursor-pointer transition flex items-start gap-3 ${
+                    form.schedule_type === 'sequence'
+                      ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 dark:border-emerald-500 ring-1 ring-emerald-500'
+                      : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="schedule_type"
+                    value="sequence"
+                    checked={form.schedule_type === 'sequence'}
+                    onChange={() => set('schedule_type', 'sequence')}
+                    className="mt-1 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <div>
+                    <div className="font-semibold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Repeat className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      Sequência Cíclica
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      O aluno treina de forma cíclica e progressiva (Treino 1 ➔ Treino 2 ➔ Treino 3...), independentemente do dia da semana.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
 
             <Field label="E-mail" htmlFor="s-email" className="sm:col-span-6">
               <input
@@ -581,7 +953,279 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
   );
 
   /* =========================================================================
-     VISÃO 3: CRIANDO / EDITANDO TREINO DENTRO DA FICHA DO ALUNO
+     TELA: CRIANDO / EDITANDO TREINO AGENDADO (Scheduled Workout)
+     ========================================================================= */
+  if (selectedStudent && editingScheduled) {
+    const isSequence = selectedStudent.schedule_type === 'sequence';
+
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setEditingScheduled(null)}
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
+              aria-label="Voltar para a ficha do aluno"
+              title="Voltar para a ficha do aluno"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-bold text-slate-900 dark:text-white">
+                  {editingScheduled === 'new'
+                    ? `Agendar Treino — ${selectedStudent.name}`
+                    : `Editar Treino Agendado — ${editingScheduled.name}`}
+                </h1>
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  {isSequence ? 'Agenda por Sequência' : 'Agenda por Dias Fixos'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                {isSequence
+                  ? 'Defina a ordem do treino na sequência cíclica e configure os exercícios.'
+                  : 'Selecione o(s) dia(s) da semana, período de validade e configure os exercícios.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setEditingScheduled(null)}
+              className={btnGhost}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={savingScheduled}
+              onClick={handleSaveScheduledWorkout}
+              className={btnPrimary}
+            >
+              {savingScheduled ? 'Salvando...' : 'Salvar Treino na Agenda'}
+            </button>
+          </div>
+        </div>
+
+        <ErrorBox error={error} onClose={() => setError(null)} />
+
+        {/* Escolha do Método de Inclusão do Treino */}
+        <div className={`${cardCls} p-5 space-y-4`}>
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+              Como deseja carregar ou montar este treino?
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => handleScheduledSourceChange('template', selectedTemplateForScheduled || templates[0]?.id)}
+                className={`p-3 text-left rounded-xl border transition ${
+                  scheduledSourceType === 'template'
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <ClipboardList className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  Carregar de Template
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  Importa exercícios de um template pré-definido da organização.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleScheduledSourceChange(
+                    'student_workout',
+                    selectedStudentWorkoutForScheduled || studentWorkouts[0]?.id
+                  )
+                }
+                className={`p-3 text-left rounded-xl border transition ${
+                  scheduledSourceType === 'student_workout'
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Dumbbell className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  Carregar dos Treinos do Aluno
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  Copia a lista de um treino livre já cadastrado deste aluno.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleScheduledSourceChange('new')}
+                className={`p-3 text-left rounded-xl border transition ${
+                  scheduledSourceType === 'new'
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                }`}
+              >
+                <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Plus className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  Criar Novo Treino
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">
+                  Monte uma lista de exercícios do zero usando o construtor.
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Seletores condicionais da fonte escolhida */}
+          {scheduledSourceType === 'template' && (
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-2">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                Selecione o Template de Treino para carregar:
+              </label>
+              <select
+                value={selectedTemplateForScheduled}
+                onChange={(e) => handleScheduledSourceChange('template', e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Selecione um template...</option>
+                {templates.map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name} ({tpl.items.length} exercícios)
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-slate-500 italic">
+                * As alterações feitas neste treino agendado não afetarão o template original.
+              </p>
+            </div>
+          )}
+
+          {scheduledSourceType === 'student_workout' && (
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-2">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                Selecione o Treino do Aluno para carregar:
+              </label>
+              {studentWorkouts.length === 0 ? (
+                <div className="text-xs text-amber-600 dark:text-amber-400">
+                  Este aluno ainda não possui treinos livres cadastrados.
+                </div>
+              ) : (
+                <select
+                  value={selectedStudentWorkoutForScheduled}
+                  onChange={(e) => handleScheduledSourceChange('student_workout', e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Selecione um treino cadastrado...</option>
+                  {studentWorkouts.map((wk) => (
+                    <option key={wk.id} value={wk.id}>
+                      {wk.name} ({wk.items.length} exercícios)
+                    </option>
+                  ))}
+                </select>
+              )}
+              <p className="text-[11px] text-slate-500 italic">
+                * As alterações feitas neste treino agendado não afetarão o cadastro base do aluno.
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <Field label="Nome do Treino *" className="md:col-span-6">
+              <input
+                type="text"
+                required
+                placeholder="Ex: Treino A - Peito e Tríceps"
+                value={scheduledName}
+                onChange={(e) => setScheduledName(e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+
+            <Field label="Data de Início (Opcional)" className="md:col-span-3">
+              <input
+                type="date"
+                value={scheduledStartDate}
+                onChange={(e) => setScheduledStartDate(e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+
+            <Field label="Data de Fim (Opcional)" className="md:col-span-3">
+              <input
+                type="date"
+                value={scheduledEndDate}
+                onChange={(e) => setScheduledEndDate(e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+
+            {/* Configuração específica de formato de agenda */}
+            {!isSequence ? (
+              <div className="md:col-span-12">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Dia(s) da Semana para este Treino *{' '}
+                  <span className="text-slate-400 font-normal">
+                    {editingScheduled && editingScheduled !== 'new'
+                      ? '(Selecione o dia deste treino)'
+                      : '(Você pode marcar múltiplos dias para criar o treino neles)'}
+                  </span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {DAYS_OF_WEEK.map((dayName, idx) => {
+                    const isSelected = scheduledDaysOfWeek.includes(idx);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleToggleScheduledDay(idx)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        {dayName}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <Field label="Ordem na Sequência *" className="md:col-span-4">
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={scheduledSequenceOrder}
+                  onChange={(e) => setScheduledSequenceOrder(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  className={inputCls}
+                />
+              </Field>
+            )}
+
+            <Field label="Observações do Treino (Opcional)" className={isSequence ? 'md:col-span-8' : 'md:col-span-12'}>
+              <input
+                type="text"
+                placeholder="Ex: Aquecimento articular prévio obrigatório..."
+                value={scheduledNotes}
+                onChange={(e) => setScheduledNotes(e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+          </div>
+        </div>
+
+        {/* Construtor Reutilizável de Lista de Exercícios */}
+        <WorkoutExercisesBuilder items={scheduledItems} onChange={setScheduledItems} />
+      </div>
+    );
+  }
+
+  /* =========================================================================
+     TELA: CRIANDO / EDITANDO TREINO LIVRE DO ALUNO
      ========================================================================= */
   if (selectedStudent && editingWorkout) {
     return (
@@ -601,15 +1245,15 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold text-slate-900 dark:text-white">
                   {editingWorkout === 'new'
-                    ? `Cadastrar Treino — ${selectedStudent.name}`
-                    : `Editar Treino — ${editingWorkout.name}`}
+                    ? `Cadastrar Treino Livre — ${selectedStudent.name}`
+                    : `Editar Treino Livre — ${editingWorkout.name}`}
                 </h1>
-                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
-                  Aluno: {selectedStudent.name} ({selectedStudent.group_name})
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                  Treino Livre (Sem vínculo direto com agenda)
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Monte a lista de exercícios com séries, repetições, peso e descanso para este aluno.
+                Monte ou edite este treino do aluno. Ele pode ser executado avulsamente ou agendado depois.
               </p>
             </div>
           </div>
@@ -628,17 +1272,16 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
               onClick={handleSaveStudentWorkout}
               className={btnPrimary}
             >
-              {savingWorkout ? 'Salvando...' : 'Salvar Treino do Aluno'}
+              {savingWorkout ? 'Salvando...' : 'Salvar Treino Livre'}
             </button>
           </div>
         </div>
 
         <ErrorBox error={error} onClose={() => setError(null)} />
 
-        {/* Dados Principais do Treino do Aluno + Opção rápida de importar de um Template */}
-        <form onSubmit={handleSaveStudentWorkout} className={`${cardCls} p-5 space-y-4`}>
+        <div className={`${cardCls} p-5 space-y-4`}>
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-            <Field label="Nome do Treino *" className="md:col-span-5">
+            <Field label="Nome do Treino Livre *" className="md:col-span-5">
               <input
                 type="text"
                 required
@@ -649,7 +1292,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
               />
             </Field>
 
-            <Field label="Observações do Treino (Opcional)" className="md:col-span-4">
+            <Field label="Observações (Opcional)" className="md:col-span-4">
               <input
                 type="text"
                 placeholder="Ex: Aquecer 10 min na esteira antes de iniciar..."
@@ -674,7 +1317,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
               </select>
             </Field>
           </div>
-        </form>
+        </div>
 
         {/* Construtor Reutilizável de Lista de Exercícios */}
         <WorkoutExercisesBuilder items={workoutItems} onChange={setWorkoutItems} />
@@ -683,9 +1326,11 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
   }
 
   /* =========================================================================
-     VISÃO 2: FICHA DO ALUNO E PROGRAMAÇÃO DE TREINOS
+     VISÃO: FICHA DO ALUNO (Perfil, Agenda e Treinos Livres)
      ========================================================================= */
   if (selectedStudent) {
+    const isSequence = selectedStudent.schedule_type === 'sequence';
+
     return (
       <div className="space-y-5">
         {/* Cabeçalho da Ficha do Aluno */}
@@ -716,12 +1361,22 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
                 >
                   {selectedStudent.group_name}
                 </span>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                  {selectedStudent.gender}
+                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+                  {isSequence ? (
+                    <>
+                      <Repeat className="w-3 h-3 text-emerald-500" />
+                      Agenda por Sequência
+                    </>
+                  ) : (
+                    <>
+                      <Calendar className="w-3 h-3 text-emerald-500" />
+                      Agenda por Dias Fixos
+                    </>
+                  )}
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Ficha do aluno e programação de treinos personalizados
+                Ficha individual, agenda de treinos programados e treinos livres
               </p>
             </div>
           </div>
@@ -732,14 +1387,14 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
               onClick={() => openModal(selectedStudent)}
               className={btnGhost}
             >
-              <Pencil className="w-4 h-4" /> Editar Dados do Aluno
+              <Pencil className="w-4 h-4" /> Editar Aluno / Agenda
             </button>
             <button
               type="button"
-              onClick={startNewStudentWorkout}
+              onClick={() => startNewScheduledWorkout()}
               className={btnPrimary}
             >
-              <Plus className="w-4 h-4" /> Cadastrar Treino
+              <Plus className="w-4 h-4" /> Agendar Treino
             </button>
           </div>
         </div>
@@ -796,154 +1451,646 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
 
           {selectedStudent.notes && (
             <div className="sm:col-span-2 lg:col-span-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300">
-              <span className="font-bold text-slate-700 dark:text-slate-200">Observações do Aluno: </span>
+              <span className="font-bold text-slate-700 dark:text-slate-200">Observações: </span>
               {selectedStudent.notes}
             </div>
           )}
         </div>
 
-        {/* Seção: Programação de Treinos do Aluno */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Dumbbell className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                Programação de Treinos ({studentWorkouts.length})
-              </h2>
-              <p className="text-xs text-slate-500">
-                Treinos vinculados diretamente à ficha de {selectedStudent.name}
-              </p>
-            </div>
-          </div>
+        {/* Navegação entre Agenda e Treinos Livres */}
+        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={() => setStudentTab('agenda')}
+            className={`pb-3 px-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer ${
+              studentTab === 'agenda'
+                ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            {isSequence ? (
+              <Repeat className="w-4 h-4" />
+            ) : (
+              <Calendar className="w-4 h-4" />
+            )}
+            Agenda de Treinos
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              {scheduledWorkouts.length}
+            </span>
+          </button>
 
-          {loadingWorkouts && (
-            <div className={cardCls}>
-              <LoadingState message="Carregando treinos do aluno..." />
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => setStudentTab('free_workouts')}
+            className={`pb-3 px-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer ${
+              studentTab === 'free_workouts'
+                ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Dumbbell className="w-4 h-4" />
+            Treinos Livres (Sem Agenda)
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              {studentWorkouts.length}
+            </span>
+          </button>
+        </div>
 
-          {!loadingWorkouts && studentWorkouts.length === 0 && (
-            <div className={`${cardCls} p-12 text-center space-y-3`}>
-              <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
-                <ClipboardList className="w-6 h-6" />
-              </div>
-              <div className="text-base font-bold text-slate-800 dark:text-slate-100">
-                Nenhum treino cadastrado para este aluno
-              </div>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Clique em "Cadastrar Treino" para montar a programação de exercícios personalizada para {selectedStudent.name}.
-              </p>
+        {/* CONTEÚDO DA ABA: AGENDA DE TREINOS */}
+        {studentTab === 'agenda' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <button type="button" onClick={startNewStudentWorkout} className={btnPrimary}>
-                  <Plus className="w-4 h-4" /> Cadastrar Treino
+                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  {isSequence ? (
+                    <>
+                      <Repeat className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      Visualização em Sequência Cíclica ({scheduledWorkouts.length} treinos)
+                    </>
+                  ) : (
+                    <>
+                      <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      Visualização em Calendário Semanal ({scheduledWorkouts.length} treinos)
+                    </>
+                  )}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {isSequence
+                    ? 'O aluno segue os treinos em ordem contínua. Ao concluir o último passo, o ciclo reinicia.'
+                    : 'Treinos programados para dias específicos da semana com controle de datas de início e fim.'}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => startNewScheduledWorkout()}
+                  className={btnPrimary}
+                >
+                  <Plus className="w-4 h-4" /> Agendar Novo Treino
                 </button>
               </div>
             </div>
-          )}
 
-          {!loadingWorkouts && studentWorkouts.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {studentWorkouts.map((wk) => (
-                <div
-                  key={wk.id}
-                  className={`${cardCls} p-5 flex flex-col justify-between gap-4 hover:border-emerald-500/40 transition`}
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="font-bold text-base text-slate-900 dark:text-white truncate">
-                          {wk.name}
-                        </h3>
-                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                          <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
-                            <Dumbbell className="w-3 h-3" />
-                            {wk.items.length} exercício(s)
-                          </span>
-                          {wk.notes && (
-                            <span className="text-xs text-slate-500 italic truncate max-w-xs">
-                              {wk.notes}
+            {loadingStudentData && (
+              <div className={cardCls}>
+                <LoadingState message="Carregando agenda do aluno..." />
+              </div>
+            )}
+
+            {!loadingStudentData && scheduledWorkouts.length === 0 && (
+              <div className={`${cardCls} p-12 text-center space-y-3`}>
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div className="text-base font-bold text-slate-800 dark:text-slate-100">
+                  Nenhum treino agendado ainda
+                </div>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  {isSequence
+                    ? 'Adicione treinos na sequência para compor o ciclo de treinamento de ' +
+                      selectedStudent.name +
+                      '.'
+                    : 'Adicione treinos nos dias da semana para compor a rotina de ' +
+                      selectedStudent.name +
+                      '.'}
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => startNewScheduledWorkout()}
+                    className={btnPrimary}
+                  >
+                    <Plus className="w-4 h-4" /> Agendar Primeiro Treino
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* FORMATO 1: VISUALIZAÇÃO EM CALENDÁRIO SEMANAL (Dias Fixos) */}
+            {!loadingStudentData && !isSequence && scheduledWorkouts.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3">
+                {DAYS_OF_WEEK.map((dayName, dayIndex) => {
+                  const dayWorkouts = scheduledWorkouts.filter(
+                    (sw) => sw.day_of_week === dayIndex
+                  );
+                  const isWeekend = dayIndex === 0 || dayIndex === 6;
+
+                  return (
+                    <div
+                      key={dayIndex}
+                      className={`flex flex-col rounded-2xl border transition ${
+                        dayWorkouts.length > 0
+                          ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm'
+                          : 'bg-slate-50/70 dark:bg-slate-900/40 border-dashed border-slate-200 dark:border-slate-800'
+                      }`}
+                    >
+                      {/* Cabeçalho do Dia */}
+                      <div
+                        className={`p-3 border-b rounded-t-2xl flex items-center justify-between gap-1.5 ${
+                          isWeekend
+                            ? 'bg-slate-100/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-800'
+                            : 'bg-emerald-50/60 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/40'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                            {dayName}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-medium">
+                            {dayWorkouts.length === 0
+                              ? 'Livre / Descanso'
+                              : `${dayWorkouts.length} treino(s)`}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => startNewScheduledWorkout(dayIndex)}
+                          className="w-6 h-6 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:border-emerald-500 flex items-center justify-center transition cursor-pointer shrink-0"
+                          title={`Adicionar treino na ${dayName}`}
+                          aria-label={`Adicionar treino na ${dayName}`}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Lista de Treinos do Dia */}
+                      <div className="p-2.5 flex-1 space-y-2.5 min-h-[140px]">
+                        {dayWorkouts.length === 0 ? (
+                          <div className="h-full flex flex-col items-center justify-center py-6 text-center text-slate-400">
+                            <span className="text-[11px] italic">Sem treinos</span>
+                            <button
+                              type="button"
+                              onClick={() => startNewScheduledWorkout(dayIndex)}
+                              className="mt-2 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                            >
+                              + Incluir treino
+                            </button>
+                          </div>
+                        ) : (
+                          dayWorkouts.map((wk) => (
+                            <div
+                              key={wk.id}
+                              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 hover:border-emerald-500/50 transition group flex flex-col justify-between gap-2 shadow-xs"
+                            >
+                              <div>
+                                <div className="flex items-start justify-between gap-1">
+                                  <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-2">
+                                    {wk.name}
+                                  </h4>
+                                  <div className="flex items-center gap-0.5 opacity-90 group-hover:opacity-100">
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditScheduledWorkout(wk)}
+                                      className="p-1 hover:text-emerald-600 text-slate-400 rounded cursor-pointer"
+                                      title="Editar treino agendado"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDuplicateScheduledWorkout(wk)}
+                                      className="p-1 hover:text-emerald-600 text-slate-400 rounded cursor-pointer"
+                                      title="Duplicar treino"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteScheduledWorkout(wk)}
+                                      className="p-1 hover:text-rose-600 text-slate-400 rounded cursor-pointer"
+                                      title="Excluir da agenda"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {(wk.start_date || wk.end_date) && (
+                                  <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                                    <Clock className="w-2.5 h-2.5 shrink-0" />
+                                    <span>
+                                      {wk.start_date ? formatDatePtBr(wk.start_date) : 'Início'}
+                                      {' até '}
+                                      {wk.end_date ? formatDatePtBr(wk.end_date) : 'Indeterminado'}
+                                    </span>
+                                  </div>
+                                )}
+
+                                <div className="mt-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                                  <Dumbbell className="w-3 h-3" />
+                                  {wk.items.length} exercício(s)
+                                </div>
+
+                                {wk.notes && (
+                                  <div className="text-[10px] text-slate-400 italic line-clamp-1 mt-0.5">
+                                    {wk.notes}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Exercícios resumo */}
+                              {wk.items.length > 0 && (
+                                <div className="pt-2 border-t border-slate-200/50 dark:border-slate-700/50 space-y-1">
+                                  {wk.items.slice(0, 3).map((it, i) => (
+                                    <div
+                                      key={it.id || i}
+                                      className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between gap-1"
+                                    >
+                                      <span className="truncate">{it.exercise_name}</span>
+                                      <span className="shrink-0 text-[9px] font-bold text-slate-400">
+                                        {it.sets}x{it.reps}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {wk.items.length > 3 && (
+                                    <div className="text-[9px] text-slate-400 italic">
+                                      +{wk.items.length - 3} mais exercícios...
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* FORMATO 2: VISUALIZAÇÃO EM SEQUÊNCIA (Cards Cíclicos) */}
+            {!loadingStudentData && isSequence && scheduledWorkouts.length > 0 && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[...scheduledWorkouts]
+                    .sort((a, b) => (a.sequence_order || 1) - (b.sequence_order || 1))
+                    .map((wk, idx, array) => {
+                      const isFirst = idx === 0;
+                      const isLast = idx === array.length - 1;
+
+                      return (
+                        <div
+                          key={wk.id}
+                          className={`${cardCls} p-5 flex flex-col justify-between gap-4 border-l-4 border-l-emerald-500 hover:border-emerald-500/80 transition relative shadow-sm`}
+                        >
+                          <div className="space-y-3">
+                            {/* Topo do Card de Sequência */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-emerald-600 text-white font-bold text-xs">
+                                    {wk.sequence_order || idx + 1}
+                                  </span>
+                                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                                    Passo {wk.sequence_order || idx + 1} da Sequência
+                                  </span>
+                                </div>
+                                <h3 className="text-base font-bold text-slate-900 dark:text-white mt-1">
+                                  {wk.name}
+                                </h3>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={isFirst}
+                                  onClick={() => handleMoveSequenceOrder(wk, 'up')}
+                                  className={`p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 ${
+                                    isFirst
+                                      ? 'opacity-30 cursor-not-allowed text-slate-400'
+                                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer'
+                                  }`}
+                                  title="Mover treino para trás na sequência"
+                                  aria-label="Mover para cima"
+                                >
+                                  <ArrowUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isLast}
+                                  onClick={() => handleMoveSequenceOrder(wk, 'down')}
+                                  className={`p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 ${
+                                    isLast
+                                      ? 'opacity-30 cursor-not-allowed text-slate-400'
+                                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer'
+                                  }`}
+                                  title="Mover treino para frente na sequência"
+                                  aria-label="Mover para baixo"
+                                >
+                                  <ArrowDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditScheduledWorkout(wk)}
+                                  className={btnIcon}
+                                  title="Editar treino da sequência"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDuplicateScheduledWorkout(wk)}
+                                  className={btnIcon}
+                                  title="Duplicar treino"
+                                >
+                                  <Copy className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteScheduledWorkout(wk)}
+                                  className={`${btnIcon} hover:text-rose-600`}
+                                  title="Excluir treino da sequência"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Validade */}
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              {(wk.start_date || wk.end_date) ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                  <Clock className="w-3 h-3 text-slate-400" />
+                                  {wk.start_date ? formatDatePtBr(wk.start_date) : 'Início'}
+                                  {' até '}
+                                  {wk.end_date ? formatDatePtBr(wk.end_date) : 'Indeterminado'}
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-slate-400">
+                                  Sem limite de validade de datas
+                                </span>
+                              )}
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                <Dumbbell className="w-3 h-3" />
+                                {wk.items.length} exercício(s)
+                              </span>
+                            </div>
+
+                            {wk.notes && (
+                              <p className="text-xs text-slate-500 italic">{wk.notes}</p>
+                            )}
+
+                            {/* Exercícios do Treino */}
+                            {wk.items.length === 0 ? (
+                              <p className="text-xs text-slate-400 italic">
+                                Nenhum exercício adicionado a este treino.
+                              </p>
+                            ) : (
+                              <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                {wk.items.map((item, i) => {
+                                  const schemeMeta =
+                                    SCHEME_TYPES_INFO[item.scheme_type] ||
+                                    SCHEME_TYPES_INFO.series_retas;
+                                  return (
+                                    <div
+                                      key={item.id || `${item.exercise_id}-${i}`}
+                                      className="flex items-center justify-between gap-2 text-xs py-1"
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className="w-5 h-5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold text-[10px] flex items-center justify-center shrink-0">
+                                          {i + 1}
+                                        </span>
+                                        <span className="font-medium text-slate-800 dark:text-slate-200 truncate">
+                                          {item.exercise_name}
+                                        </span>
+                                      </div>
+                                      <span
+                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold shrink-0 ${schemeMeta.badgeCls}`}
+                                      >
+                                        <Sparkles className="w-2.5 h-2.5" />
+                                        {formatSchemeSummary(item)}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                            <span className="text-slate-400 text-[11px] flex items-center gap-1">
+                              Próximo:{' '}
+                              {isLast ? (
+                                <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                  Reinicia no Passo 1 ⟳
+                                </strong>
+                              ) : (
+                                `Passo ${(wk.sequence_order || idx + 1) + 1}`
+                              )}
                             </span>
-                          )}
+                            <button
+                              type="button"
+                              onClick={() => startEditScheduledWorkout(wk)}
+                              className="font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                            >
+                              Editar treino →
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {/* Card visual de fechamento do ciclo */}
+                <div className="p-4 rounded-2xl border border-dashed border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-950/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                      <Repeat className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900 dark:text-white">
+                        Ciclo Contínuo de Treinamento
+                      </div>
+                      <div className="text-slate-500 text-[11px]">
+                        Após o Aluno concluir o treino {scheduledWorkouts.length}, ele retornará automaticamente ao treino 1.
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => startNewScheduledWorkout()}
+                    className={btnPrimary}
+                  >
+                    <Plus className="w-4 h-4" /> Adicionar Mais um Passo
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CONTEÚDO DA ABA: TREINOS LIVRES (SEM AGENDA) */}
+        {studentTab === 'free_workouts' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Dumbbell className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  Treinos Livres ({studentWorkouts.length})
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Treinos avulsos do aluno que não dependem de dia da semana ou sequência cíclica. Podem ser agendados a qualquer momento.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={startNewStudentWorkout}
+                className={btnPrimary}
+              >
+                <Plus className="w-4 h-4" /> Cadastrar Treino Livre
+              </button>
+            </div>
+
+            {loadingStudentData && (
+              <div className={cardCls}>
+                <LoadingState message="Carregando treinos livres do aluno..." />
+              </div>
+            )}
+
+            {!loadingStudentData && studentWorkouts.length === 0 && (
+              <div className={`${cardCls} p-12 text-center space-y-3`}>
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                  <ClipboardList className="w-6 h-6" />
+                </div>
+                <div className="text-base font-bold text-slate-800 dark:text-slate-100">
+                  Nenhum treino livre cadastrado
+                </div>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Crie treinos livres caso queira manter fichas de exercícios adicionais para este aluno fora do formato de agenda.
+                </p>
+                <div>
+                  <button type="button" onClick={startNewStudentWorkout} className={btnPrimary}>
+                    <Plus className="w-4 h-4" /> Cadastrar Treino Livre
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!loadingStudentData && studentWorkouts.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {studentWorkouts.map((wk) => (
+                  <div
+                    key={wk.id}
+                    className={`${cardCls} p-5 flex flex-col justify-between gap-4 hover:border-emerald-500/40 transition`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-base text-slate-900 dark:text-white truncate">
+                            {wk.name}
+                          </h3>
+                          <div className="flex flex-wrap items-center gap-2 mt-1">
+                            <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                              <Dumbbell className="w-3 h-3" />
+                              {wk.items.length} exercício(s)
+                            </span>
+                            {wk.notes && (
+                              <span className="text-xs text-slate-500 italic truncate max-w-xs">
+                                {wk.notes}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleScheduleFreeWorkout(wk)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition cursor-pointer"
+                            title="Agendar este treino na rotina do aluno"
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            Agendar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startEditStudentWorkout(wk)}
+                            className={btnIcon}
+                            title="Editar treino livre"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicateStudentWorkout(wk)}
+                            className={btnIcon}
+                            title="Duplicar treino livre"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStudentWorkout(wk)}
+                            className={`${btnIcon} hover:text-rose-600`}
+                            title="Excluir treino livre"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => startEditStudentWorkout(wk)}
-                          className={btnIcon}
-                          title="Editar treino"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDuplicateStudentWorkout(wk)}
-                          className={btnIcon}
-                          title="Duplicar treino"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteStudentWorkout(wk)}
-                          className={`${btnIcon} hover:text-rose-600`}
-                          title="Excluir treino"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {wk.items.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic">
-                        Nenhum exercício adicionado a este treino.
-                      </p>
-                    ) : (
-                      <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                        {wk.items.map((item, idx) => {
-                          const schemeMeta =
-                            SCHEME_TYPES_INFO[item.scheme_type] || SCHEME_TYPES_INFO.series_retas;
-                          return (
-                            <div
-                              key={item.id || `${item.exercise_id}-${idx}`}
-                              className="flex items-center justify-between gap-2 text-xs py-1"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="w-5 h-5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold text-[11px] flex items-center justify-center shrink-0">
-                                  {idx + 1}
-                                </span>
-                                <span className="font-medium text-slate-800 dark:text-slate-200 truncate">
-                                  {item.exercise_name}
+                      {wk.items.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">
+                          Nenhum exercício adicionado a este treino.
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                          {wk.items.map((item, idx) => {
+                            const schemeMeta =
+                              SCHEME_TYPES_INFO[item.scheme_type] || SCHEME_TYPES_INFO.series_retas;
+                            return (
+                              <div
+                                key={item.id || `${item.exercise_id}-${idx}`}
+                                className="flex items-center justify-between gap-2 text-xs py-1"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="w-5 h-5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold text-[11px] flex items-center justify-center shrink-0">
+                                    {idx + 1}
+                                  </span>
+                                  <span className="font-medium text-slate-800 dark:text-slate-200 truncate">
+                                    {item.exercise_name}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold shrink-0 ${schemeMeta.badgeCls}`}
+                                >
+                                  <Sparkles className="w-2.5 h-2.5" />
+                                  {formatSchemeSummary(item)}
                                 </span>
                               </div>
-                              <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold shrink-0 ${schemeMeta.badgeCls}`}
-                              >
-                                <Sparkles className="w-2.5 h-2.5" />
-                                {formatSchemeSummary(item)}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
 
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => startEditStudentWorkout(wk)}
-                      className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                    >
-                      Abrir e editar treino →
-                    </button>
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleScheduleFreeWorkout(wk)}
+                        className="font-medium text-slate-500 hover:text-emerald-600 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        Copiar para a Agenda
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => startEditStudentWorkout(wk)}
+                        className="font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                      >
+                        Abrir e editar treino →
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {studentModals}
       </div>
@@ -951,7 +2098,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
   }
 
   /* =========================================================================
-     VISÃO 1: LISTAGEM GERAL DE ALUNOS
+     VISÃO: LISTAGEM GERAL DE ALUNOS
      ========================================================================= */
   return (
     <div className="space-y-5">
@@ -964,7 +2111,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
             </span>
           </div>
           <p className="text-sm text-slate-500">
-            Cadastre seus alunos e acesse a ficha individual para montar a programação de treinos.
+            Cadastre seus alunos e acesse a ficha individual para gerenciar a agenda e a programação de treinos.
           </p>
         </div>
         <button type="button" className={btnPrimary} onClick={() => openModal('new')}>
@@ -1020,10 +2167,10 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
             <tr>
               <th className="text-left px-4 py-3.5">Nome</th>
               <th className="text-left px-4 py-3.5">Grupo</th>
-              <th className="text-left px-4 py-3.5">Treinos</th>
+              <th className="text-left px-4 py-3.5">Formato Agenda</th>
+              <th className="text-left px-4 py-3.5">Treinos Agendados</th>
               <th className="text-left px-4 py-3.5">Gênero</th>
               <th className="text-left px-4 py-3.5">Telefone</th>
-              <th className="text-left px-4 py-3.5">Cidade/UF</th>
               <th className="px-4 py-3.5 text-right">Ações</th>
             </tr>
           </thead>
@@ -1077,29 +2224,41 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
                     </span>
                   </td>
                   <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                      {s.schedule_type === 'sequence' ? (
+                        <>
+                          <Repeat className="w-3 h-3 text-emerald-500" />
+                          Sequência Cíclica
+                        </>
+                      ) : (
+                        <>
+                          <Calendar className="w-3 h-3 text-emerald-500" />
+                          Dias Fixos
+                        </>
+                      )}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
                     <button
                       type="button"
                       onClick={() => setSelectedStudentId(s.id)}
                       className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/60 dark:hover:text-emerald-300 transition cursor-pointer"
                     >
-                      <Dumbbell className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                      {s.workouts_count ?? 0} treino(s)
+                      <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      {s.scheduled_workouts_count ?? 0} agendado(s)
                     </button>
                   </td>
                   <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">{s.gender}</td>
                   <td className="px-4 py-3.5 text-slate-600 dark:text-slate-300">{s.phone}</td>
-                  <td className="px-4 py-3.5 text-slate-500">
-                    {s.city ? `${s.city}${s.state ? '/' + s.state : ''}` : '—'}
-                  </td>
                   <td className="px-4 py-3.5 text-right whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => setSelectedStudentId(s.id)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 mr-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-xs font-semibold transition cursor-pointer"
-                      title="Abrir ficha e programação de treinos do aluno"
+                      title="Abrir ficha, agenda e treinos do aluno"
                     >
                       <UserCheck className="w-3.5 h-3.5" />
-                      Ficha / Treinos
+                      Ficha / Agenda
                     </button>
                     <button
                       type="button"

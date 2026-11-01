@@ -37,6 +37,8 @@ export interface StudentGroup {
   students_count?: number;
 }
 
+export type ScheduleType = 'fixed_days' | 'sequence';
+
 export interface Student {
   id: string;
   organization_id: string;
@@ -46,6 +48,7 @@ export interface Student {
   gender: 'Masculino' | 'Feminino' | 'Outro';
   group_id?: string | null;
   group_name: string;
+  schedule_type?: ScheduleType;
   notes?: string | null;
   email?: string | null;
   zip_code?: string | null;
@@ -55,6 +58,7 @@ export interface Student {
   state?: string | null;
   delivery_instructions?: string | null;
   workouts_count?: number;
+  scheduled_workouts_count?: number;
   created_at?: string;
 }
 
@@ -148,6 +152,34 @@ export interface StudentWorkout {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface StudentScheduledWorkout {
+  id: string;
+  organization_id: string;
+  student_id: string;
+  name: string;
+  notes?: string | null;
+  schedule_type: ScheduleType;
+  day_of_week?: number | null; // 0 a 6
+  sequence_order?: number | null; // 1, 2, 3...
+  start_date?: string | null;
+  end_date?: string | null;
+  items: WorkoutExerciseItem[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const DAYS_OF_WEEK = [
+  'Domingo',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado',
+];
+
+export const DAYS_OF_WEEK_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 export const SCHEME_TYPES_INFO: Record<
   SchemeType,

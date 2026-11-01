@@ -31,29 +31,43 @@ export const Modal: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
   wide?: boolean;
-}> = ({ title, onClose, children, wide }) => {
+  size?: 'md' | 'lg' | 'xl';
+  compact?: boolean;
+}> = ({ title, onClose, children, wide, size, compact }) => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  const maxWidthCls =
+    size === 'xl'
+      ? 'max-w-5xl'
+      : size === 'lg' || wide
+      ? 'max-w-4xl'
+      : 'max-w-2xl';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full ${
-          wide ? 'max-w-4xl' : 'max-w-2xl'
-        } p-6 shadow-xl my-8`}
+        className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full ${maxWidthCls} ${
+          compact ? 'p-4 sm:p-5 my-auto' : 'p-6 my-8'
+        } shadow-xl`}
       >
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h3>
+        <div
+          className={`flex items-center justify-between ${
+            compact ? 'pb-3' : 'pb-4'
+          } border-b border-slate-200 dark:border-slate-800`}
+        >
+          <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">{title}</h3>
           <button type="button" onClick={onClose} className={btnIcon} aria-label="Fechar">
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="mt-5">{children}</div>
+        <div className={compact ? 'mt-3.5' : 'mt-5'}>{children}</div>
       </div>
     </div>
   );

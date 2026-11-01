@@ -747,6 +747,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
          ===================================================================== */}
       {configTarget && (
         <Modal
+          size="xl"
+          compact
           title={
             configTarget.mode === 'add'
               ? `Execução — ${configTarget.exercise.name}`
@@ -754,20 +756,20 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
           }
           onClose={() => setConfigTarget(null)}
         >
-          <form onSubmit={handleConfirmExerciseConfig} className="space-y-5">
+          <form onSubmit={handleConfirmExerciseConfig} className="space-y-3.5">
             {/* 1. Cápsulas de Seleção Rápida (Esquemas Pré-definidos) */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
                   Esquemas Pré-definidos (Seleção Rápida)
                 </label>
                 <span className="text-[11px] text-slate-400">
-                  Clique em uma cápsula para preencher
+                  Clique em uma cápsula para preencher rapidamente
                 </span>
               </div>
 
-              <div className="flex flex-wrap gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 max-h-40 overflow-y-auto">
+              <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
                 {schemes.map((s) => {
                   const isSelected = selectedSchemeId === s.id;
                   return (
@@ -779,13 +781,13 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') handleSelectCapsule(s);
                       }}
-                      className={`group inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer select-none ${
+                      className={`group inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition cursor-pointer select-none ${
                         isSelected
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                           : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:border-emerald-500'
                       }`}
                     >
-                      {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      {isSelected && <Check className="w-3 h-3 shrink-0" />}
                       <span>{s.name}</span>
                       {!s.is_default && (
                         <button
@@ -805,12 +807,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
               </div>
             </div>
 
-            {/* 2. Tipo de Esquema + Help Contextual */}
-            <div className="space-y-2.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Tipo de Esquema
-              </label>
-
+            {/* 2. Tipo de Esquema + Help Contextual em linha compacta */}
+            <div className="space-y-2">
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 {SCHEME_TYPE_KEYS.map((typeKey) => {
                   const info = SCHEME_TYPES_INFO[typeKey];
@@ -839,7 +837,7 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
                           repUnit
                         );
                       }}
-                      className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
+                      className={`px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer text-center ${
                         active
                           ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 shadow-2xs'
                           : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -851,9 +849,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
                 })}
               </div>
 
-              {/* Help do tipo de esquema selecionado */}
-              <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 flex items-start gap-2.5 text-xs text-emerald-900 dark:text-emerald-200">
-                <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div className="px-3 py-2 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/60 flex items-center gap-2 text-xs text-emerald-900 dark:text-emerald-200">
+                <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <div>
                   <span className="font-bold">{SCHEME_TYPES_INFO[schemeType].label}: </span>
                   <span>{SCHEME_TYPES_INFO[schemeType].help}</span>
@@ -861,274 +858,276 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
               </div>
             </div>
 
-            {/* 3. Séries, Unidade (Quantidade / Segundos / Minutos) e Repetições */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-              {/* Número de Séries */}
-              <div className="sm:col-span-4">
-                <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
-                  Séries *
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleManualChange(schemeType, Math.max(1, sets - 1), reps, repUnit)}
-                    className="w-10 h-10 rounded-xl border border-slate-300 dark:border-slate-700 flex items-center justify-center font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min={1}
-                    max={50}
-                    required
-                    value={sets}
-                    onChange={(e) =>
-                      handleManualChange(
-                        schemeType,
-                        Math.max(1, parseInt(e.target.value || '1', 10)),
-                        reps,
-                        repUnit
-                      )
-                    }
-                    className={`${inputCls} text-center font-bold`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleManualChange(schemeType, sets + 1, reps, repUnit)}
-                    className="w-10 h-10 rounded-xl border border-slate-300 dark:border-slate-700 flex items-center justify-center font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              {/* Unidade da Repetição: Quantidade vs Segundos vs Minutos */}
-              <div className="sm:col-span-8">
-                <label className="block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
-                  Medida da Repetição *
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(
-                    [
-                      { key: 'reps', label: 'Quantidade', icon: Hash },
-                      { key: 'seconds', label: 'Segundos', icon: Clock },
-                      { key: 'minutes', label: 'Minutos', icon: Clock },
-                    ] as const
-                  ).map((u) => {
-                    const active = repUnit === u.key;
-                    const Icon = u.icon;
-                    return (
+            {/* 3. Grade Principal em 2 Colunas (Esquerda: Séries/Repetições/Obs | Direita: Peso e Descanso) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-stretch">
+              {/* Coluna Esquerda: Séries, Medida, Repetições e Observações */}
+              <div className="lg:col-span-6 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20 flex flex-col justify-between gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  {/* Número de Séries */}
+                  <div className="sm:col-span-5">
+                    <label className="block text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                      Séries *
+                    </label>
+                    <div className="flex items-center gap-1">
                       <button
-                        key={u.key}
                         type="button"
-                        onClick={() => {
-                          let nextReps = reps;
-                          if (u.key === 'seconds' && (reps === '10' || reps === '12')) nextReps = '45';
-                          if (u.key === 'minutes' && (reps === '10' || reps === '45')) nextReps = '1';
-                          if (u.key === 'reps' && (reps === '45' || reps === '1')) nextReps = '10';
-                          handleManualChange(schemeType, sets, nextReps, u.key);
-                        }}
-                        className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border text-xs font-semibold transition cursor-pointer ${
-                          active
-                            ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                            : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-                        }`}
+                        onClick={() => handleManualChange(schemeType, Math.max(1, sets - 1), reps, repUnit)}
+                        className="w-9 h-9 rounded-xl border border-slate-300 dark:border-slate-700 flex items-center justify-center font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
                       >
-                        <Icon className="w-3.5 h-3.5" />
-                        {u.label}
+                        -
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Campo de Repetições / Tempo + Observação opcional */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field
-                label={
-                  repUnit === 'seconds'
-                    ? 'Tempo em Segundos por Série *'
-                    : repUnit === 'minutes'
-                    ? 'Tempo em Minutos por Série *'
-                    : schemeType === 'piramide'
-                    ? 'Repetições por Série (ex: 12-10-8-6) *'
-                    : 'Repetições *'
-                }
-              >
-                <input
-                  type="text"
-                  required
-                  placeholder={
-                    schemeType === 'piramide'
-                      ? 'Ex: 12-10-8-6'
-                      : repUnit === 'seconds'
-                      ? 'Ex: 45'
-                      : repUnit === 'minutes'
-                      ? 'Ex: 1'
-                      : 'Ex: 10 ou 10-12'
-                  }
-                  value={reps}
-                  onChange={(e) => handleManualChange(schemeType, sets, e.target.value, repUnit)}
-                  className={inputCls}
-                />
-              </Field>
-
-              <Field label="Observações (Opcional)">
-                <input
-                  type="text"
-                  placeholder="Ex: Cadência controlada, amplitude máxima..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className={inputCls}
-                />
-              </Field>
-            </div>
-
-            {/* Peso / Carga (kg) — Único ou Por Série conforme o tipo de esquema */}
-            <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                  <Dumbbell className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  {isPerSetWeightScheme
-                    ? `Peso por Série em kg (${SCHEME_TYPES_INFO[schemeType].label})`
-                    : `Peso a ser usado em kg (${SCHEME_TYPES_INFO[schemeType].label})`}
-                </label>
-                <span className="text-[11px] text-slate-400">
-                  {isPerSetWeightScheme
-                    ? 'Informe o valor em kg para cada série'
-                    : 'Informe um único valor em kg para todas as séries'}
-                </span>
-              </div>
-
-              {isPerSetWeightScheme ? (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {perSetWeights.map((val, sIdx) => (
-                    <div key={sIdx}>
-                      <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                        {sIdx + 1}ª Série (kg)
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          placeholder="Ex: 20"
-                          value={val}
-                          onChange={(e) => {
-                            const next = [...perSetWeights];
-                            next[sIdx] = e.target.value;
-                            setPerSetWeights(next);
-                          }}
-                          className={`${inputCls} pr-9`}
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs font-semibold text-slate-400 pointer-events-none">
-                          kg
-                        </span>
-                      </div>
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        required
+                        value={sets}
+                        onChange={(e) =>
+                          handleManualChange(
+                            schemeType,
+                            Math.max(1, parseInt(e.target.value || '1', 10)),
+                            reps,
+                            repUnit
+                          )
+                        }
+                        className={`${inputCls} py-1.5 px-2 text-center font-bold`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleManualChange(schemeType, sets + 1, reps, repUnit)}
+                        className="w-9 h-9 rounded-xl border border-slate-300 dark:border-slate-700 flex items-center justify-center font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+                      >
+                        +
+                      </button>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="max-w-xs relative">
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    placeholder="Ex: 25"
-                    value={singleWeight}
-                    onChange={(e) => setSingleWeight(e.target.value)}
-                    className={`${inputCls} pr-10`}
-                  />
-                  <span className="absolute right-3.5 top-2.5 text-xs font-semibold text-slate-400 pointer-events-none">
-                    kg
-                  </span>
-                </div>
-              )}
-            </div>
+                  </div>
 
-            {/* Tempo de Descanso entre as Séries */}
-            <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  Tempo de Descanso entre as Séries
-                </label>
+                  {/* Unidade da Repetição */}
+                  <div className="sm:col-span-7">
+                    <label className="block text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                      Medida da Repetição *
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          { key: 'reps', label: 'Qtd.', icon: Hash },
+                          { key: 'seconds', label: 'Seg.', icon: Clock },
+                          { key: 'minutes', label: 'Min.', icon: Clock },
+                        ] as const
+                      ).map((u) => {
+                        const active = repUnit === u.key;
+                        const Icon = u.icon;
+                        return (
+                          <button
+                            key={u.key}
+                            type="button"
+                            onClick={() => {
+                              let nextReps = reps;
+                              if (u.key === 'seconds' && (reps === '10' || reps === '12')) nextReps = '45';
+                              if (u.key === 'minutes' && (reps === '10' || reps === '45')) nextReps = '1';
+                              if (u.key === 'reps' && (reps === '45' || reps === '1')) nextReps = '10';
+                              handleManualChange(schemeType, sets, nextReps, u.key);
+                            }}
+                            className={`flex items-center justify-center gap-1 h-9 px-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                              active
+                                ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <Icon className="w-3 h-3 shrink-0" />
+                            {u.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
 
-                {/* Atalhos rápidos de descanso */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {[
-                    { label: 'Sem desc.', val: '0', unit: 'seconds' as RestUnit },
-                    { label: '15s', val: '15', unit: 'seconds' as RestUnit },
-                    { label: '30s', val: '30', unit: 'seconds' as RestUnit },
-                    { label: '45s', val: '45', unit: 'seconds' as RestUnit },
-                    { label: '60s', val: '60', unit: 'seconds' as RestUnit },
-                    { label: '90s', val: '90', unit: 'seconds' as RestUnit },
-                    { label: '2 min', val: '2', unit: 'minutes' as RestUnit },
-                  ].map((q) => {
-                    const isQuickActive = restTime.trim() === q.val && restUnit === q.unit;
-                    return (
-                      <button
-                        key={q.label}
-                        type="button"
-                        onClick={() => {
-                          setRestTime(q.val);
-                          setRestUnit(q.unit);
-                        }}
-                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer ${
-                          isQuickActive
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
-                        }`}
-                      >
-                        {q.label}
-                      </button>
-                    );
-                  })}
+                {/* Repetições / Tempo e Observações */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                      {repUnit === 'seconds'
+                        ? 'Tempo (Segundos) *'
+                        : repUnit === 'minutes'
+                        ? 'Tempo (Minutos) *'
+                        : schemeType === 'piramide'
+                        ? 'Reps por Série *'
+                        : 'Repetições *'}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder={
+                        schemeType === 'piramide'
+                          ? 'Ex: 12-10-8-6'
+                          : repUnit === 'seconds'
+                          ? 'Ex: 45'
+                          : repUnit === 'minutes'
+                          ? 'Ex: 1'
+                          : 'Ex: 10 ou 10-12'
+                      }
+                      value={reps}
+                      onChange={(e) => handleManualChange(schemeType, sets, e.target.value, repUnit)}
+                      className={`${inputCls} py-2`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400 mb-1">
+                      Observações (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Cadência controlada..."
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      className={`${inputCls} py-2`}
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
-                <div className="sm:col-span-6">
-                  <input
-                    type="text"
-                    placeholder="Ex: 60 (ou 0 para sem descanso)"
-                    value={restTime}
-                    onChange={(e) => setRestTime(e.target.value)}
-                    className={inputCls}
-                  />
+              {/* Coluna Direita: Peso (kg) + Tempo de Descanso */}
+              <div className="lg:col-span-6 flex flex-col justify-between gap-3">
+                {/* Peso / Carga (kg) */}
+                <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <Dumbbell className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      {isPerSetWeightScheme
+                        ? `Peso por Série em kg (${SCHEME_TYPES_INFO[schemeType].label})`
+                        : `Peso em kg (${SCHEME_TYPES_INFO[schemeType].label})`}
+                    </label>
+                    <span className="text-[10px] text-slate-400">
+                      {isPerSetWeightScheme ? '1 valor para cada série' : 'Valor único'}
+                    </span>
+                  </div>
+
+                  {isPerSetWeightScheme ? (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 max-h-24 overflow-y-auto pr-0.5">
+                      {perSetWeights.map((val, sIdx) => (
+                        <div key={sIdx} className="relative">
+                          <span className="absolute left-2 top-2 text-[10px] font-bold text-slate-400 pointer-events-none">
+                            {sIdx + 1}ª
+                          </span>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            placeholder="kg"
+                            value={val}
+                            onChange={(e) => {
+                              const next = [...perSetWeights];
+                              next[sIdx] = e.target.value;
+                              setPerSetWeights(next);
+                            }}
+                            className={`${inputCls} pl-6 pr-2 py-1.5 text-xs text-right font-semibold`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        placeholder="Informe o peso em kg (ex: 25)"
+                        value={singleWeight}
+                        onChange={(e) => setSingleWeight(e.target.value)}
+                        className={`${inputCls} py-1.5 pr-10`}
+                      />
+                      <span className="absolute right-3.5 top-2 text-xs font-semibold text-slate-400 pointer-events-none">
+                        kg
+                      </span>
+                    </div>
+                  )}
                 </div>
-                <div className="sm:col-span-6 grid grid-cols-2 gap-2">
-                  {(
-                    [
-                      { key: 'seconds', label: 'Segundos' },
-                      { key: 'minutes', label: 'Minutos' },
-                    ] as const
-                  ).map((u) => {
-                    const active = restUnit === u.key;
-                    return (
-                      <button
-                        key={u.key}
-                        type="button"
-                        onClick={() => setRestUnit(u.key)}
-                        className={`py-2.5 px-3 rounded-xl border text-xs font-semibold transition cursor-pointer ${
-                          active
-                            ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
-                            : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-                        }`}
-                      >
-                        {u.label}
-                      </button>
-                    );
-                  })}
+
+                {/* Tempo de Descanso entre as Séries */}
+                <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      Descanso entre Séries
+                    </label>
+
+                    <div className="flex flex-wrap items-center gap-1">
+                      {[
+                        { label: '0s', val: '0', unit: 'seconds' as RestUnit },
+                        { label: '15s', val: '15', unit: 'seconds' as RestUnit },
+                        { label: '30s', val: '30', unit: 'seconds' as RestUnit },
+                        { label: '45s', val: '45', unit: 'seconds' as RestUnit },
+                        { label: '60s', val: '60', unit: 'seconds' as RestUnit },
+                        { label: '90s', val: '90', unit: 'seconds' as RestUnit },
+                        { label: '2m', val: '2', unit: 'minutes' as RestUnit },
+                      ].map((q) => {
+                        const isQuickActive = restTime.trim() === q.val && restUnit === q.unit;
+                        return (
+                          <button
+                            key={q.label}
+                            type="button"
+                            onClick={() => {
+                              setRestTime(q.val);
+                              setRestUnit(q.unit);
+                            }}
+                            className={`px-2 py-0.5 rounded-md border text-[11px] font-semibold transition cursor-pointer ${
+                              isQuickActive
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
+                            }`}
+                          >
+                            {q.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-6">
+                      <input
+                        type="text"
+                        placeholder="Ex: 60"
+                        value={restTime}
+                        onChange={(e) => setRestTime(e.target.value)}
+                        className={`${inputCls} py-1.5`}
+                      />
+                    </div>
+                    <div className="col-span-6 grid grid-cols-2 gap-1.5">
+                      {(
+                        [
+                          { key: 'seconds', label: 'Segundos' },
+                          { key: 'minutes', label: 'Minutos' },
+                        ] as const
+                      ).map((u) => {
+                        const active = restUnit === u.key;
+                        return (
+                          <button
+                            key={u.key}
+                            type="button"
+                            onClick={() => setRestUnit(u.key)}
+                            className={`py-1.5 px-2 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                              active
+                                ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            {u.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* 4. Salvar Esquema Manual para usar como pré-definido posteriormente */}
-            <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-3">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
+            {/* 4. Barra Inferior: Salvar Esquema + Resumo + Botões de Ação */}
+            <div className="pt-2.5 border-t border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3 flex-1">
+                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={saveAsPreset}
@@ -1141,72 +1140,73 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
                     }}
                     className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
                   />
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                    <BookmarkPlus className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    Salvar este esquema para usar como pré-definido posteriormente
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1">
+                    <BookmarkPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    Salvar esquema nos pré-definidos
                   </span>
                 </label>
 
+                {saveAsPreset && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      placeholder={`Nome (ex: ${suggestedName})`}
+                      value={customPresetName}
+                      onChange={(e) => setCustomPresetName(e.target.value)}
+                      className={`${inputCls} py-1 px-2.5 text-xs w-44`}
+                    />
+                    <button
+                      type="button"
+                      disabled={savingPresetOnly}
+                      onClick={handleSavePresetNow}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 dark:bg-slate-700 text-white text-xs font-semibold hover:opacity-90 transition cursor-pointer shrink-0"
+                    >
+                      <BookmarkPlus className="w-3 h-3" />
+                      {savingPresetOnly ? '...' : 'Salvar agora'}
+                    </button>
+                  </div>
+                )}
+
                 {presetSavedFeedback && (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                    <BookmarkCheck className="w-4 h-4" />
+                    <BookmarkCheck className="w-3.5 h-3.5" />
                     {presetSavedFeedback}
                   </span>
                 )}
               </div>
 
-              {saveAsPreset && (
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-                  <input
-                    type="text"
-                    placeholder={`Nome da cápsula (ex: ${suggestedName})`}
-                    value={customPresetName}
-                    onChange={(e) => setCustomPresetName(e.target.value)}
-                    className={`${inputCls} text-xs flex-1`}
-                  />
+              <div className="flex flex-wrap items-center justify-between lg:justify-end gap-3">
+                <div className="text-xs text-slate-500">
+                  Resumo:{' '}
+                  <strong className="text-slate-800 dark:text-slate-200">
+                    {formatSchemeSummary({
+                      scheme_type: schemeType,
+                      sets: Math.max(1, Number(sets) || 3),
+                      reps: reps.trim() || '10',
+                      rep_unit: repUnit,
+                      rest_time: restTime.trim(),
+                      rest_unit: restUnit,
+                      weight: isPerSetWeightScheme
+                        ? perSetWeights.some((w) => w.trim() !== '')
+                          ? perSetWeights.map((w) => w.trim() || '-').join(' / ')
+                          : null
+                        : singleWeight.trim() || null,
+                    })}
+                  </strong>
+                </div>
+
+                <div className="flex gap-2">
                   <button
                     type="button"
-                    disabled={savingPresetOnly}
-                    onClick={handleSavePresetNow}
-                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 text-white text-xs font-semibold hover:opacity-90 transition cursor-pointer shrink-0"
+                    onClick={() => setConfigTarget(null)}
+                    className={`${btnGhost} py-2 px-3.5`}
                   >
-                    <BookmarkPlus className="w-3.5 h-3.5" />
-                    {savingPresetOnly ? 'Salvando...' : 'Salvar cápsula agora'}
+                    Cancelar
+                  </button>
+                  <button type="submit" className={`${btnPrimary} py-2 px-4`}>
+                    {configTarget.mode === 'add' ? 'Confirmar e Adicionar' : 'Salvar Alterações'}
                   </button>
                 </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
-              <div className="text-xs text-slate-500">
-                Resumo:{' '}
-                <strong className="text-slate-800 dark:text-slate-200">
-                  {formatSchemeSummary({
-                    scheme_type: schemeType,
-                    sets: Math.max(1, Number(sets) || 3),
-                    reps: reps.trim() || '10',
-                    rep_unit: repUnit,
-                    rest_time: restTime.trim(),
-                    rest_unit: restUnit,
-                    weight: isPerSetWeightScheme
-                      ? perSetWeights.some((w) => w.trim() !== '')
-                        ? perSetWeights.map((w) => w.trim() || '-').join(' / ')
-                        : null
-                      : singleWeight.trim() || null,
-                  })}
-                </strong>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConfigTarget(null)}
-                  className={btnGhost}
-                >
-                  Cancelar
-                </button>
-                <button type="submit" className={btnPrimary}>
-                  {configTarget.mode === 'add' ? 'Confirmar e Adicionar' : 'Salvar Alterações'}
-                </button>
               </div>
             </div>
           </form>

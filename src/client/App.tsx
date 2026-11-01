@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeftRight,
   Building2,
+  ChevronDown,
   Dumbbell,
+  FolderKanban,
   GraduationCap,
   KeyRound,
   LayoutDashboard,
@@ -409,6 +411,7 @@ export default function App() {
   );
   const [view, setView] = useState<View>('dashboard');
   const [exerciseSubTab, setExerciseSubTab] = useState<'exercises' | 'muscle_groups' | 'categories'>('exercises');
+  const [exercisesMenuOpen, setExercisesMenuOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const loadMe = useCallback(async () => {
@@ -552,18 +555,33 @@ export default function App() {
     );
   }
 
-  const nav: { id: View; label: string; icon: any; show: boolean }[] = [
+  const nav: {
+    id: View;
+    label: string;
+    icon: any;
+    show: boolean;
+    children?: { id: View; label: string; icon: any }[];
+  }[] = [
     { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard, show: true },
     { id: 'students', label: 'Gestão de Alunos', icon: GraduationCap, show: org.mod_students !== false },
-    { id: 'exercises', label: 'Exercícios', icon: Dumbbell, show: org.mod_exercises !== false },
+    {
+      id: 'exercises',
+      label: 'Exercícios',
+      icon: Dumbbell,
+      show: org.mod_exercises !== false,
+      children: [{ id: 'exercises', label: 'Cadastros', icon: FolderKanban }],
+    },
     { id: 'settings', label: 'Configurações', icon: Settings, show: true },
   ];
 
   const visibleNav = nav.filter((n) => n.show);
-  const currentView = visibleNav.some((n) => n.id === view) ? view : 'dashboard';
+  const currentView = visibleNav.some((n) => n.id === view || n.children?.some((c) => c.id === view))
+    ? view
+    : 'dashboard';
 
   const go = (v: View, sub?: 'exercises' | 'muscle_groups' | 'categories') => {
     if (sub) setExerciseSubTab(sub);
+    if (v === 'exercises') setExercisesMenuOpen(true);
     setView(v);
     setMenuOpen(false);
   };
@@ -589,24 +607,80 @@ export default function App() {
         </div>
       </div>
       <ul className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {visibleNav.map((n) => (
-          <li key={n.id}>
-            <button
-              type="button"
-              onClick={() => go(n.id)}
-              aria-current={currentView === n.id ? 'page' : undefined}
-              title={n.label}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition cursor-pointer ${
-                currentView === n.id
-                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-semibold'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              <n.icon className="w-4 h-4 shrink-0" />
-              <span className="truncate whitespace-nowrap">{n.label}</span>
-            </button>
-          </li>
-        ))}
+        {visibleNav.map((n) => {
+          if (n.children && n.children.length > 0) {
+            const isChildActive = n.children.some((c) => c.id === currentView);
+            const isOpen = exercisesMenuOpen || isChildActive;
+            return (
+              <li key={n.id} className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => setExercisesMenuOpen((prev) => !prev)}
+                  aria-expanded={isOpen}
+                  title={n.label}
+                  className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition cursor-pointer ${
+                    isChildActive
+                      ? 'text-emerald-700 dark:text-emerald-300 font-semibold bg-emerald-50/50 dark:bg-emerald-950/30'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <n.icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate whitespace-nowrap">{n.label}</span>
+                  </div>
+                  <ChevronDown
+                    className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
+                      isOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+                {isOpen && (
+                  <ul className="pl-6 pr-1 py-0.5 space-y-1 border-l border-slate-200 dark:border-slate-800 ml-5">
+                    {n.children.map((subItem) => {
+                      const active = currentView === subItem.id;
+                      return (
+                        <li key={subItem.label}>
+                          <button
+                            type="button"
+                            onClick={() => go(subItem.id)}
+                            aria-current={active ? 'page' : undefined}
+                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer ${
+                              active
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-semibold'
+                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <subItem.icon className="w-3.5 h-3.5 shrink-0" />
+                            <span className="truncate whitespace-nowrap">{subItem.label}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </li>
+            );
+          }
+
+          return (
+            <li key={n.id}>
+              <button
+                type="button"
+                onClick={() => go(n.id)}
+                aria-current={currentView === n.id ? 'page' : undefined}
+                title={n.label}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition cursor-pointer ${
+                  currentView === n.id
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-semibold'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <n.icon className="w-4 h-4 shrink-0" />
+                <span className="truncate whitespace-nowrap">{n.label}</span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
       <div className="p-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
         {isMaster && (

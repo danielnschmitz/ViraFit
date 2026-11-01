@@ -85,6 +85,117 @@ export interface Exercise {
   created_at?: string;
 }
 
+export type SchemeType = 'series_retas' | 'piramide' | 'drop_set' | 'rest_pause' | 'ate_a_falha';
+export type RepUnit = 'reps' | 'seconds' | 'minutes';
+
+export interface ExerciseScheme {
+  id: string;
+  organization_id: string;
+  name: string;
+  scheme_type: SchemeType;
+  sets: number;
+  reps: string;
+  rep_unit: RepUnit;
+  is_default: boolean;
+  created_at?: string;
+}
+
+export interface WorkoutExerciseItem {
+  id?: string;
+  exercise_id: string;
+  exercise_name: string;
+  media_type?: Exercise['media_type'];
+  media_url?: string | null;
+  muscle_group_id?: string;
+  muscle_group_name?: string;
+  category_id?: string;
+  category_name?: string;
+  is_favorite?: boolean;
+  scheme_id?: string | null;
+  scheme_name: string;
+  scheme_type: SchemeType;
+  sets: number;
+  reps: string;
+  rep_unit: RepUnit;
+  notes?: string | null;
+}
+
+export interface WorkoutTemplate {
+  id: string;
+  organization_id: string;
+  name: string;
+  student_group_id?: string | null;
+  student_group_name: string;
+  items: WorkoutExerciseItem[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export const SCHEME_TYPES_INFO: Record<
+  SchemeType,
+  { label: string; shortLabel: string; help: string; badgeCls: string }
+> = {
+  series_retas: {
+    label: 'Séries Retas',
+    shortLabel: 'Séries Retas',
+    help: 'Número fixo de repetições em todas as séries com o mesmo peso e tempo de descanso (ex: 3x10)',
+    badgeCls:
+      'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800',
+  },
+  piramide: {
+    label: 'Pirâmide',
+    shortLabel: 'Pirâmide',
+    help: 'Ascendente ou descendente, peso aumenta ou diminui a cada série',
+    badgeCls:
+      'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800',
+  },
+  drop_set: {
+    label: 'Drop-set',
+    shortLabel: 'Drop-set',
+    help: 'Fazer a série até a falha, diminuir a carga imediatamente (sem descanso) e continuar fazendo até a nova falha.',
+    badgeCls:
+      'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800',
+  },
+  rest_pause: {
+    label: 'Rest-Pause',
+    shortLabel: 'Rest-Pause',
+    help: 'Fazer a série até quase a falha, descansar por 10 a 15 segundos no mesmo aparelho, e espremer mais algumas repetições.',
+    badgeCls:
+      'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800',
+  },
+  ate_a_falha: {
+    label: 'Até a Falha',
+    shortLabel: 'Até a Falha',
+    help: 'Executar o exercício até não conseguir mais mover o peso com boa forma',
+    badgeCls:
+      'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800',
+  },
+};
+
+export const REP_UNIT_LABELS: Record<RepUnit, { label: string; suffix: string }> = {
+  reps: { label: 'Quantidade (repetições)', suffix: 'reps' },
+  seconds: { label: 'Tempo (segundos)', suffix: 'seg' },
+  minutes: { label: 'Tempo (minutos)', suffix: 'min' },
+};
+
+export function formatSchemeSummary(item: {
+  scheme_type: SchemeType;
+  sets: number;
+  reps: string;
+  rep_unit: RepUnit;
+}): string {
+  const unitSuffix =
+    item.rep_unit === 'seconds' ? 'seg' : item.rep_unit === 'minutes' ? 'min' : 'reps';
+  const typeLabel = SCHEME_TYPES_INFO[item.scheme_type]?.label || 'Séries Retas';
+  if (item.scheme_type === 'ate_a_falha' && item.reps.toLowerCase().includes('falha')) {
+    return `${typeLabel} • ${item.sets}x Até a Falha`;
+  }
+  if (item.scheme_type === 'piramide') {
+    return `${typeLabel} • ${item.sets}x (${item.reps} ${unitSuffix})`;
+  }
+  return `${typeLabel} • ${item.sets}x ${item.reps} ${unitSuffix}`;
+}
+
 const TOKEN_KEY = 'virafit_token';
 const ACTIVE_ORG_KEY = 'virafit_active_org_id';
 

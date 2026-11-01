@@ -49,6 +49,20 @@ export const DEFAULT_EXERCISE_CATEGORIES = [
   'Laboral',
 ];
 
+export const DEFAULT_EXERCISE_SCHEMES = [
+  { name: '3x10', scheme_type: 'series_retas', sets: 3, reps: '10', rep_unit: 'reps' },
+  { name: '3x12', scheme_type: 'series_retas', sets: 3, reps: '12', rep_unit: 'reps' },
+  { name: '3x15', scheme_type: 'series_retas', sets: 3, reps: '15', rep_unit: 'reps' },
+  { name: '4x10', scheme_type: 'series_retas', sets: 4, reps: '10', rep_unit: 'reps' },
+  { name: '4x12', scheme_type: 'series_retas', sets: 4, reps: '12', rep_unit: 'reps' },
+  { name: '3x 45 seg', scheme_type: 'series_retas', sets: 3, reps: '45', rep_unit: 'seconds' },
+  { name: '3x 1 min', scheme_type: 'series_retas', sets: 3, reps: '1', rep_unit: 'minutes' },
+  { name: 'Pirâmide 12-10-8-6', scheme_type: 'piramide', sets: 4, reps: '12-10-8-6', rep_unit: 'reps' },
+  { name: 'Drop-set 3x10', scheme_type: 'drop_set', sets: 3, reps: '10', rep_unit: 'reps' },
+  { name: 'Rest-Pause 3x10', scheme_type: 'rest_pause', sets: 3, reps: '10', rep_unit: 'reps' },
+  { name: '3x Até a Falha', scheme_type: 'ate_a_falha', sets: 3, reps: 'Falha', rep_unit: 'reps' },
+];
+
 export async function seedOrganizationDefaults(orgId: string, client?: PoolClient | Pool): Promise<void> {
   const db = client || pool;
 
@@ -77,6 +91,21 @@ export async function seedOrganizationDefaults(orgId: string, client?: PoolClien
        ON CONFLICT (organization_id, name) DO NOTHING`,
       [crypto.randomUUID(), orgId, name]
     );
+  }
+
+  const schemesCount = await db.query(
+    `SELECT COUNT(*)::int AS total FROM exercise_schemes WHERE organization_id = $1`,
+    [orgId]
+  );
+  if (schemesCount.rows[0].total === 0) {
+    for (const s of DEFAULT_EXERCISE_SCHEMES) {
+      await db.query(
+        `INSERT INTO exercise_schemes (id, organization_id, name, scheme_type, sets, reps, rep_unit, is_default)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
+         ON CONFLICT (organization_id, name) DO NOTHING`,
+        [crypto.randomUUID(), orgId, s.name, s.scheme_type, s.sets, s.reps, s.rep_unit]
+      );
+    }
   }
 }
 
@@ -213,11 +242,53 @@ export async function initDatabase(): Promise<void> {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS exercise_schemes (
+        id VARCHAR(36) PRIMARY KEY,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name VARCHAR(150) NOT NULL,
+        scheme_type VARCHAR(40) NOT NULL DEFAULT 'series_retas', -- 'series_retas', 'piramide', 'drop_set', 'rest_pause', 'ate_a_falha'
+        sets INTEGER NOT NULL DEFAULT 3,
+        reps VARCHAR(100) NOT NULL DEFAULT '10',
+        rep_unit VARCHAR(20) NOT NULL DEFAULT 'reps', -- 'reps', 'seconds', 'minutes'
+        is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(organization_id, name)
+      );
+
+      CREATE TABLE IF NOT EXISTS workout_templates (
+        id VARCHAR(36) PRIMARY KEY,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        student_group_id VARCHAR(36) REFERENCES student_groups(id) ON DELETE SET NULL,
+        student_group_name VARCHAR(150) NOT NULL DEFAULT 'Todos',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS workout_template_items (
+        id VARCHAR(36) PRIMARY KEY,
+        template_id VARCHAR(36) NOT NULL REFERENCES workout_templates(id) ON DELETE CASCADE,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        exercise_id VARCHAR(36) NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+        scheme_id VARCHAR(36) REFERENCES exercise_schemes(id) ON DELETE SET NULL,
+        scheme_name VARCHAR(150) NOT NULL,
+        scheme_type VARCHAR(40) NOT NULL DEFAULT 'series_retas',
+        sets INTEGER NOT NULL DEFAULT 3,
+        reps VARCHAR(100) NOT NULL DEFAULT '10',
+        rep_unit VARCHAR(20) NOT NULL DEFAULT 'reps',
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_users_org ON users(organization_id);
       CREATE INDEX IF NOT EXISTS idx_students_org ON students(organization_id, name);
       CREATE INDEX IF NOT EXISTS idx_muscle_groups_org ON muscle_groups(organization_id, name);
       CREATE INDEX IF NOT EXISTS idx_exercise_categories_org ON exercise_categories(organization_id, name);
       CREATE INDEX IF NOT EXISTS idx_exercises_org ON exercises(organization_id, name);
+      CREATE INDEX IF NOT EXISTS idx_exercise_schemes_org ON exercise_schemes(organization_id);
+      CREATE INDEX IF NOT EXISTS idx_workout_templates_org ON workout_templates(organization_id, name);
+      CREATE INDEX IF NOT EXISTS idx_workout_template_items_tpl ON workout_template_items(template_id, position);
     `);
 
     // Garantir criação do usuário Master padrão ('master' / 'admin123')

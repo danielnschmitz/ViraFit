@@ -989,3 +989,363 @@ orgRouter.delete('/exercises/:id', async (req: AuthRequest, res) => {
     res.status(500).json({ error: 'Erro ao excluir exercício.' });
   }
 });
+
+// ============================================================================
+// 2.4 ESQUEMAS DE EXECUÇÃO (Pré-definidos e Salvos pelo Usuário)
+// ============================================================================
+const VALID_SCHEME_TYPES = ['series_retas', 'piramide', 'drop_set', 'rest_pause', 'ate_a_falha'];
+const VALID_REP_UNITS = ['reps', 'seconds', 'minutes'];
+
+orgRouter.get('/exercise-schemes', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const result = await pool.query(
+      `SELECT * FROM exercise_schemes
+       WHERE organization_id = $1
+       ORDER BY is_default DESC, created_at ASC`,
+      [orgId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[ExerciseSchemes] Erro ao listar esquemas:', err);
+    res.status(500).json({ error: 'Erro ao listar esquemas de execução.' });
+  }
+});
+
+orgRouter.post('/exercise-schemes', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const { name, scheme_type, sets, reps, rep_unit } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'Informe um nome para identificar o esquema.' });
+    }
+
+    const cleanName = String(name).trim();
+    const cleanType = VALID_SCHEME_TYPES.includes(scheme_type) ? scheme_type : 'series_retas';
+    const cleanSets = Math.max(1, parseInt(String(sets || 3), 10) || 3);
+    const cleanReps = String(reps || '10').trim() || '10';
+    const cleanUnit = VALID_REP_UNITS.includes(rep_unit) ? rep_unit : 'reps';
+
+    const existing = await pool.query(
+      `SELECT id FROM exercise_schemes WHERE organization_id = $1 AND LOWER(name) = LOWER($2)`,
+      [orgId, cleanName]
+    );
+
+    if (existing.rows.length > 0) {
+      const updated = await pool.query(
+        `UPDATE exercise_schemes
+         SET name = $1, scheme_type = $2, sets = $3, reps = $4, rep_unit = $5
+         WHERE id = $6 AND organization_id = $7
+         RETURNING *`,
+        [cleanName, cleanType, cleanSets, cleanReps, cleanUnit, existing.rows[0].id, orgId]
+      );
+      return res.json(updated.rows[0]);
+    }
+
+    const id = crypto.randomUUID();
+    const result = await pool.query(
+      `INSERT INTO exercise_schemes (id, organization_id, name, scheme_type, sets, reps, rep_unit, is_default)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE)
+       RETURNING *`,
+      [id, orgId, cleanName, cleanType, cleanSets, cleanReps, cleanUnit]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[ExerciseSchemes] Erro ao salvar esquema:', err);
+    res.status(500).json({ error: 'Erro ao salvar esquema de execução.' });
+  }
+});
+
+orgRouter.delete('/exercise-schemes/:id', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const { id } = req.params;
+    await pool.query(`DELETE FROM exercise_schemes WHERE id = $1 AND organization_id = $2`, [id, orgId]);
+    res.json({ message: 'Esquema removido com sucesso.' });
+  } catch (err) {
+    console.error('[ExerciseSchemes] Erro ao remover esquema:', err);
+    res.status(500).json({ error: 'Erro ao remover esquema.' });
+  }
+});
+
+// ============================================================================
+// 2.5 TEMPLATES DE TREINO
+// ============================================================================
+async function fetchWorkoutTemplatesWithItems(orgId: string, templateId?: string) {
+  const params: any[] = [orgId];
+  let whereClause = `wt.organization_id = $1`;
+  if (templateId) {
+    params.push(templateId);
+    whereClause += ` AND wt.id = $2`;
+  }
+
+  const templatesRes = await pool.query(
+    `SELECT wt.*
+     FROM workout_templates wt
+     WHERE ${whereClause}
+     ORDER BY wt.updated_at DESC, wt.name ASC`,
+    params
+  );
+
+  if (templatesRes.rows.length === 0) return [];
+
+  const templateIds = templatesRes.rows.map((r) => r.id);
+  const itemsRes = await pool.query(
+    `SELECT wti.*,
+            e.name AS exercise_name,
+            e.media_type,
+            e.media_url,
+            e.muscle_group_id,
+            mg.name AS muscle_group_name,
+            e.category_id,
+            ec.name AS category_name,
+            e.is_favorite
+     FROM workout_template_items wti
+     JOIN exercises e ON wti.exercise_id = e.id
+     JOIN muscle_groups mg ON e.muscle_group_id = mg.id
+     JOIN exercise_categories ec ON e.category_id = ec.id
+     WHERE wti.template_id = ANY($1::varchar[])
+     ORDER BY wti.position ASC, wti.created_at ASC`,
+    [templateIds]
+  );
+
+  const itemsByTemplate = new Map<string, any[]>();
+  for (const row of itemsRes.rows) {
+    const list = itemsByTemplate.get(row.template_id) || [];
+    list.push(row);
+    itemsByTemplate.set(row.template_id, list);
+  }
+
+  return templatesRes.rows.map((tpl) => ({
+    ...tpl,
+    items: itemsByTemplate.get(tpl.id) || [],
+  }));
+}
+
+orgRouter.get('/workout-templates', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const templates = await fetchWorkoutTemplatesWithItems(orgId);
+    res.json(templates);
+  } catch (err) {
+    console.error('[WorkoutTemplates] Erro ao listar templates:', err);
+    res.status(500).json({ error: 'Erro ao listar templates de treino.' });
+  }
+});
+
+orgRouter.post('/workout-templates', async (req: AuthRequest, res) => {
+  const client = await pool.connect();
+  try {
+    const orgId = req.activeOrgId!;
+    const { name, student_group_id, student_group_name, items } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'O Nome do template de treino é obrigatório.' });
+    }
+
+    await client.query('BEGIN');
+
+    // Resolver Grupo de Alunos (padrão 'Todos' quando vazio ou 'all' / 'Todos')
+    let resolvedGroupId: string | null = null;
+    let resolvedGroupName = 'Todos';
+
+    if (student_group_id && student_group_id !== 'all' && student_group_id !== 'Todos') {
+      const gRes = await client.query(
+        `SELECT id, name FROM student_groups WHERE id = $1 AND organization_id = $2`,
+        [student_group_id, orgId]
+      );
+      if (gRes.rows.length > 0) {
+        resolvedGroupId = gRes.rows[0].id;
+        resolvedGroupName = gRes.rows[0].name;
+      }
+    } else if (
+      student_group_name &&
+      String(student_group_name).trim() &&
+      String(student_group_name).trim().toLowerCase() !== 'todos'
+    ) {
+      const cleanGName = String(student_group_name).trim();
+      const gRes = await client.query(
+        `SELECT id, name FROM student_groups WHERE organization_id = $1 AND LOWER(name) = LOWER($2)`,
+        [orgId, cleanGName]
+      );
+      if (gRes.rows.length > 0) {
+        resolvedGroupId = gRes.rows[0].id;
+        resolvedGroupName = gRes.rows[0].name;
+      } else {
+        resolvedGroupName = cleanGName;
+      }
+    }
+
+    const templateId = crypto.randomUUID();
+    await client.query(
+      `INSERT INTO workout_templates (id, organization_id, name, student_group_id, student_group_name)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [templateId, orgId, String(name).trim(), resolvedGroupId, resolvedGroupName]
+    );
+
+    if (Array.isArray(items) && items.length > 0) {
+      for (let idx = 0; idx < items.length; idx++) {
+        const it = items[idx];
+        if (!it.exercise_id) continue;
+        const cleanType = VALID_SCHEME_TYPES.includes(it.scheme_type) ? it.scheme_type : 'series_retas';
+        const cleanSets = Math.max(1, parseInt(String(it.sets || 3), 10) || 3);
+        const cleanReps = String(it.reps || '10').trim() || '10';
+        const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
+        const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
+
+        await client.query(
+          `INSERT INTO workout_template_items (
+            id, template_id, organization_id, position, exercise_id,
+            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [
+            crypto.randomUUID(),
+            templateId,
+            orgId,
+            idx,
+            it.exercise_id,
+            it.scheme_id || null,
+            cleanSchemeName,
+            cleanType,
+            cleanSets,
+            cleanReps,
+            cleanUnit,
+            it.notes || null,
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    const created = await fetchWorkoutTemplatesWithItems(orgId, templateId);
+    res.status(201).json(created[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[WorkoutTemplates] Erro ao criar template:', err);
+    res.status(500).json({ error: 'Erro ao criar template de treino.' });
+  } finally {
+    client.release();
+  }
+});
+
+orgRouter.put('/workout-templates/:id', async (req: AuthRequest, res) => {
+  const client = await pool.connect();
+  try {
+    const orgId = req.activeOrgId!;
+    const { id } = req.params;
+    const { name, student_group_id, student_group_name, items } = req.body;
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'O Nome do template de treino é obrigatório.' });
+    }
+
+    const check = await client.query(
+      `SELECT id FROM workout_templates WHERE id = $1 AND organization_id = $2`,
+      [id, orgId]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: 'Template de treino não encontrado.' });
+    }
+
+    await client.query('BEGIN');
+
+    let resolvedGroupId: string | null = null;
+    let resolvedGroupName = 'Todos';
+
+    if (student_group_id && student_group_id !== 'all' && student_group_id !== 'Todos') {
+      const gRes = await client.query(
+        `SELECT id, name FROM student_groups WHERE id = $1 AND organization_id = $2`,
+        [student_group_id, orgId]
+      );
+      if (gRes.rows.length > 0) {
+        resolvedGroupId = gRes.rows[0].id;
+        resolvedGroupName = gRes.rows[0].name;
+      }
+    } else if (
+      student_group_name &&
+      String(student_group_name).trim() &&
+      String(student_group_name).trim().toLowerCase() !== 'todos'
+    ) {
+      const cleanGName = String(student_group_name).trim();
+      const gRes = await client.query(
+        `SELECT id, name FROM student_groups WHERE organization_id = $1 AND LOWER(name) = LOWER($2)`,
+        [orgId, cleanGName]
+      );
+      if (gRes.rows.length > 0) {
+        resolvedGroupId = gRes.rows[0].id;
+        resolvedGroupName = gRes.rows[0].name;
+      } else {
+        resolvedGroupName = cleanGName;
+      }
+    }
+
+    await client.query(
+      `UPDATE workout_templates
+       SET name = $1, student_group_id = $2, student_group_name = $3, updated_at = NOW()
+       WHERE id = $4 AND organization_id = $5`,
+      [String(name).trim(), resolvedGroupId, resolvedGroupName, id, orgId]
+    );
+
+    await client.query(
+      `DELETE FROM workout_template_items WHERE template_id = $1 AND organization_id = $2`,
+      [id, orgId]
+    );
+
+    if (Array.isArray(items) && items.length > 0) {
+      for (let idx = 0; idx < items.length; idx++) {
+        const it = items[idx];
+        if (!it.exercise_id) continue;
+        const cleanType = VALID_SCHEME_TYPES.includes(it.scheme_type) ? it.scheme_type : 'series_retas';
+        const cleanSets = Math.max(1, parseInt(String(it.sets || 3), 10) || 3);
+        const cleanReps = String(it.reps || '10').trim() || '10';
+        const cleanUnit = VALID_REP_UNITS.includes(it.rep_unit) ? it.rep_unit : 'reps';
+        const cleanSchemeName = String(it.scheme_name || `${cleanSets}x${cleanReps}`).trim();
+
+        await client.query(
+          `INSERT INTO workout_template_items (
+            id, template_id, organization_id, position, exercise_id,
+            scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, notes
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [
+            crypto.randomUUID(),
+            id,
+            orgId,
+            idx,
+            it.exercise_id,
+            it.scheme_id || null,
+            cleanSchemeName,
+            cleanType,
+            cleanSets,
+            cleanReps,
+            cleanUnit,
+            it.notes || null,
+          ]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    const updated = await fetchWorkoutTemplatesWithItems(orgId, String(id));
+    res.json(updated[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[WorkoutTemplates] Erro ao atualizar template:', err);
+    res.status(500).json({ error: 'Erro ao atualizar template de treino.' });
+  } finally {
+    client.release();
+  }
+});
+
+orgRouter.delete('/workout-templates/:id', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const { id } = req.params;
+    await pool.query(`DELETE FROM workout_templates WHERE id = $1 AND organization_id = $2`, [id, orgId]);
+    res.json({ message: 'Template de treino excluído com sucesso.' });
+  } catch (err) {
+    console.error('[WorkoutTemplates] Erro ao excluir template:', err);
+    res.status(500).json({ error: 'Erro ao excluir template de treino.' });
+  }
+});

@@ -3,6 +3,7 @@ import {
   ArrowLeftRight,
   Building2,
   ChevronDown,
+  ClipboardList,
   Dumbbell,
   FolderKanban,
   GraduationCap,
@@ -29,10 +30,11 @@ import { MasterPanel } from './components/MasterPanel';
 import { OrgDashboard } from './components/OrgDashboard';
 import { StudentsModule } from './components/StudentsModule';
 import { ExercisesModule } from './components/ExercisesModule';
+import { WorkoutTemplatesModule } from './components/WorkoutTemplatesModule';
 import { SettingsModule } from './components/SettingsModule';
 import { ErrorBox, btnPrimary, inputCls, labelCls } from './components/ui';
 
-type View = 'dashboard' | 'students' | 'exercises' | 'settings';
+type View = 'dashboard' | 'students' | 'exercises' | 'workout_templates' | 'settings';
 
 /* ---------------- Tema claro/escuro (override do esquema do sistema) ---------------- */
 const systemDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -569,7 +571,10 @@ export default function App() {
       label: 'Exercícios',
       icon: Dumbbell,
       show: org.mod_exercises !== false,
-      children: [{ id: 'exercises', label: 'Cadastros', icon: FolderKanban }],
+      children: [
+        { id: 'exercises', label: 'Cadastros', icon: FolderKanban },
+        { id: 'workout_templates', label: 'Templates de treino', icon: ClipboardList },
+      ],
     },
     { id: 'settings', label: 'Configurações', icon: Settings, show: true },
   ];
@@ -581,7 +586,7 @@ export default function App() {
 
   const go = (v: View, sub?: 'exercises' | 'muscle_groups' | 'categories') => {
     if (sub) setExerciseSubTab(sub);
-    if (v === 'exercises') setExercisesMenuOpen(true);
+    if (v === 'exercises' || v === 'workout_templates') setExercisesMenuOpen(true);
     setView(v);
     setMenuOpen(false);
   };
@@ -746,6 +751,7 @@ export default function App() {
           )}
           {currentView === 'students' && <StudentsModule org={org} />}
           {currentView === 'exercises' && <ExercisesModule initialSubTab={exerciseSubTab} />}
+          {currentView === 'workout_templates' && <WorkoutTemplatesModule />}
           {currentView === 'settings' && <SettingsModule currentUser={user} />}
         </main>
       </div>

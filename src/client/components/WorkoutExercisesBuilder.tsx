@@ -113,7 +113,21 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
   const [repUnit, setRepUnit] = useState<RepUnit>('reps');
   const [restTime, setRestTime] = useState<string>('60');
   const [restUnit, setRestUnit] = useState<RestUnit>('seconds');
+  const [singleWeight, setSingleWeight] = useState<string>('');
+  const [perSetWeights, setPerSetWeights] = useState<string[]>(['', '', '']);
   const [notes, setNotes] = useState<string>('');
+
+  const isPerSetWeightScheme = schemeType === 'piramide' || schemeType === 'drop_set';
+
+  // Ajusta automaticamente o array de pesos por série quando o número de séries muda
+  useEffect(() => {
+    const count = Math.max(1, Number(sets) || 1);
+    setPerSetWeights((prev) => {
+      if (prev.length === count) return prev;
+      if (prev.length > count) return prev.slice(0, count);
+      return [...prev, ...Array(count - prev.length).fill(prev[prev.length - 1] || '')];
+    });
+  }, [sets]);
 
   // Opção de salvar esquema manual como pré-definido
   const [saveAsPreset, setSaveAsPreset] = useState(false);
@@ -171,6 +185,7 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
     setSaveAsPreset(false);
 
     const defaultScheme = schemes[0];
+    const initialSets = defaultScheme ? defaultScheme.sets : 3;
     if (defaultScheme) {
       setSelectedSchemeId(defaultScheme.id);
       setSchemeType(defaultScheme.scheme_type);
@@ -190,6 +205,8 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
       setRestUnit('seconds');
       setCustomPresetName('3x10');
     }
+    setSingleWeight('');
+    setPerSetWeights(Array(Math.max(1, initialSets)).fill(''));
     setNotes('');
     setConfigTarget({ mode: 'add', exercise: ex });
   };
@@ -215,13 +232,29 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
       is_favorite: Boolean(item.is_favorite),
     };
 
+    const itemSets = Math.max(1, item.sets || 3);
+    const rawWeight = (item.weight || '').trim();
+    const parts = rawWeight
+      ? rawWeight.split(/\s*\/\s*|\s*-\s*/).map((p) => p.replace(/kg$/i, '').trim())
+      : [];
+
     setSelectedSchemeId(item.scheme_id || null);
     setSchemeType(item.scheme_type || 'series_retas');
-    setSets(item.sets || 3);
+    setSets(itemSets);
     setReps(item.reps || '10');
     setRepUnit(item.rep_unit || 'reps');
     setRestTime(item.rest_time ?? '60');
     setRestUnit(item.rest_unit || 'seconds');
+
+    if (item.scheme_type === 'piramide' || item.scheme_type === 'drop_set') {
+      const arr = Array.from({ length: itemSets }, (_, i) => parts[i] ?? parts[parts.length - 1] ?? '');
+      setPerSetWeights(arr);
+      setSingleWeight(parts[0] || '');
+    } else {
+      setSingleWeight(rawWeight);
+      setPerSetWeights(Array(itemSets).fill(rawWeight));
+    }
+
     setNotes(item.notes || '');
     setCustomPresetName(item.scheme_name || '');
     setConfigTarget({ mode: 'edit', exercise: foundEx, editIndex: index });
@@ -333,6 +366,12 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
       }
     }
 
+    const resolvedWeight = isPerSetWeightScheme
+      ? perSetWeights.some((w) => w.trim() !== '')
+        ? perSetWeights.map((w) => w.trim() || '-').join(' / ')
+        : null
+      : singleWeight.trim() || null;
+
     const ex = configTarget.exercise;
     const newItem: WorkoutExerciseItem = {
       exercise_id: ex.id,
@@ -352,6 +391,7 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
       rep_unit: repUnit,
       rest_time: restTime.trim() || null,
       rest_unit: restUnit,
+      weight: resolvedWeight,
       notes: notes.trim() || null,
     };
 
@@ -945,6 +985,68 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
               </Field>
             </div>
 
+            {/* Peso / Carga (kg) — Único ou Por Série conforme o tipo de esquema */}
+            <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <Dumbbell className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  {isPerSetWeightScheme
+                    ? `Peso por Série em kg (${SCHEME_TYPES_INFO[schemeType].label})`
+                    : `Peso a ser usado em kg (${SCHEME_TYPES_INFO[schemeType].label})`}
+                </label>
+                <span className="text-[11px] text-slate-400">
+                  {isPerSetWeightScheme
+                    ? 'Informe o valor em kg para cada série'
+                    : 'Informe um único valor em kg para todas as séries'}
+                </span>
+              </div>
+
+              {isPerSetWeightScheme ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {perSetWeights.map((val, sIdx) => (
+                    <div key={sIdx}>
+                      <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                        {sIdx + 1}ª Série (kg)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          placeholder="Ex: 20"
+                          value={val}
+                          onChange={(e) => {
+                            const next = [...perSetWeights];
+                            next[sIdx] = e.target.value;
+                            setPerSetWeights(next);
+                          }}
+                          className={`${inputCls} pr-9`}
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs font-semibold text-slate-400 pointer-events-none">
+                          kg
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="max-w-xs relative">
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="Ex: 25"
+                    value={singleWeight}
+                    onChange={(e) => setSingleWeight(e.target.value)}
+                    className={`${inputCls} pr-10`}
+                  />
+                  <span className="absolute right-3.5 top-2.5 text-xs font-semibold text-slate-400 pointer-events-none">
+                    kg
+                  </span>
+                </div>
+              )}
+            </div>
+
             {/* Tempo de Descanso entre as Séries */}
             <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1086,6 +1188,11 @@ export const WorkoutExercisesBuilder: React.FC<WorkoutExercisesBuilderProps> = (
                     rep_unit: repUnit,
                     rest_time: restTime.trim(),
                     rest_unit: restUnit,
+                    weight: isPerSetWeightScheme
+                      ? perSetWeights.some((w) => w.trim() !== '')
+                        ? perSetWeights.map((w) => w.trim() || '-').join(' / ')
+                        : null
+                      : singleWeight.trim() || null,
                   })}
                 </strong>
               </div>

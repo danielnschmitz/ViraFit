@@ -284,12 +284,14 @@ export async function initDatabase(): Promise<void> {
         rep_unit VARCHAR(20) NOT NULL DEFAULT 'reps',
         rest_time VARCHAR(30) DEFAULT '60',
         rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds',
+        weight VARCHAR(150),
         notes TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
       ALTER TABLE workout_template_items ADD COLUMN IF NOT EXISTS rest_time VARCHAR(30) DEFAULT '60';
       ALTER TABLE workout_template_items ADD COLUMN IF NOT EXISTS rest_unit VARCHAR(20) NOT NULL DEFAULT 'seconds';
+      ALTER TABLE workout_template_items ADD COLUMN IF NOT EXISTS weight VARCHAR(150);
 
       CREATE INDEX IF NOT EXISTS idx_users_org ON users(organization_id);
       CREATE INDEX IF NOT EXISTS idx_students_org ON students(organization_id, name);

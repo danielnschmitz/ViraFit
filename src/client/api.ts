@@ -122,6 +122,7 @@ export interface WorkoutExerciseItem {
   rep_unit: RepUnit;
   rest_time?: string | null;
   rest_unit?: RestUnit;
+  weight?: string | null;
   notes?: string | null;
 }
 
@@ -190,10 +191,13 @@ export function formatSchemeSummary(item: {
   rep_unit: RepUnit;
   rest_time?: string | null;
   rest_unit?: RestUnit;
+  weight?: string | null;
 }): string {
   const unitSuffix =
     item.rep_unit === 'seconds' ? 'seg' : item.rep_unit === 'minutes' ? 'min' : 'reps';
   const typeLabel = SCHEME_TYPES_INFO[item.scheme_type]?.label || 'Séries Retas';
+  const cleanWeight = item.weight ? String(item.weight).trim() : '';
+  const weightSuffix = cleanWeight ? ` • Peso: ${cleanWeight} kg` : '';
   const cleanRest = item.rest_time ? String(item.rest_time).trim() : '';
   const restSuffix =
     cleanRest && cleanRest !== '0'
@@ -201,12 +205,12 @@ export function formatSchemeSummary(item: {
       : '';
 
   if (item.scheme_type === 'ate_a_falha' && item.reps.toLowerCase().includes('falha')) {
-    return `${typeLabel} • ${item.sets}x Até a Falha${restSuffix}`;
+    return `${typeLabel} • ${item.sets}x Até a Falha${weightSuffix}${restSuffix}`;
   }
   if (item.scheme_type === 'piramide') {
-    return `${typeLabel} • ${item.sets}x (${item.reps} ${unitSuffix})${restSuffix}`;
+    return `${typeLabel} • ${item.sets}x (${item.reps} ${unitSuffix})${weightSuffix}${restSuffix}`;
   }
-  return `${typeLabel} • ${item.sets}x ${item.reps} ${unitSuffix}${restSuffix}`;
+  return `${typeLabel} • ${item.sets}x ${item.reps} ${unitSuffix}${weightSuffix}${restSuffix}`;
 }
 
 const TOKEN_KEY = 'virafit_token';

@@ -107,6 +107,462 @@ export async function seedOrganizationDefaults(orgId: string, client?: PoolClien
       );
     }
   }
+
+  // Templates de treino iniciais para testes
+  await seedWorkoutTemplatesForOrg(orgId, db);
+}
+
+async function seedWorkoutTemplatesForOrg(orgId: string, db: PoolClient | Pool) {
+  const countRes = await db.query(
+    `SELECT COUNT(*)::int AS total FROM workout_templates WHERE organization_id = $1`,
+    [orgId]
+  );
+  if (countRes.rows[0].total > 0) return;
+
+  const exRes = await db.query(
+    `SELECT id, name FROM exercises WHERE organization_id = $1`,
+    [orgId]
+  );
+  if (exRes.rows.length === 0) return;
+
+  const exercises = exRes.rows;
+  const findEx = (pattern: string) => {
+    const cleanPattern = pattern.toLowerCase();
+    const found = exercises.find((e: any) => e.name.toLowerCase().includes(cleanPattern));
+    return found ? found.id : exercises[0].id;
+  };
+
+  const templatesDefinitions = [
+    {
+      name: 'Hipertrofia ABC - Treino A (Peito, Ombros e Tríceps)',
+      student_group_name: 'Todos',
+      items: [
+        {
+          exercisePattern: 'supino reto com barra',
+          scheme_type: 'piramide',
+          scheme_name: 'Pirâmide 4x (12-10-8-6)',
+          sets: 4,
+          reps: '12-10-8-6',
+          rep_unit: 'reps',
+          rest_time: '90',
+          rest_unit: 'seconds',
+          weight: '40/50/60/70',
+          notes: 'Aumentar carga progressivamente a cada série com boa cadência.',
+        },
+        {
+          exercisePattern: 'supino inclinado com halter',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 4x10',
+          sets: 4,
+          reps: '10',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '24',
+          notes: 'Banco a 30 graus, focar na contração do peitoral superior.',
+        },
+        {
+          exercisePattern: 'crossover',
+          scheme_type: 'drop_set',
+          scheme_name: 'Drop-set 3x (10+10+10)',
+          sets: 3,
+          reps: '10-10-10',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '25/20/15',
+          notes: 'Diminuir carga imediatamente sem descanso.',
+        },
+        {
+          exercisePattern: 'desenvolvimento',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 4x10',
+          sets: 4,
+          reps: '10',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '18',
+          notes: 'Controle na descida até a linha das orelhas.',
+        },
+        {
+          exercisePattern: 'eleva',
+          scheme_type: 'drop_set',
+          scheme_name: 'Drop-set 3x (12+12+12)',
+          sets: 3,
+          reps: '12-12-12',
+          rep_unit: 'reps',
+          rest_time: '45',
+          rest_unit: 'seconds',
+          weight: '12/10/8',
+          notes: 'Sem balançar o tronco, manter cotovelos semi-flexionados.',
+        },
+        {
+          exercisePattern: 'pulley com corda',
+          scheme_type: 'rest_pause',
+          scheme_name: 'Rest-Pause 3x (10+5+3)',
+          sets: 3,
+          reps: '10+5+3',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '35',
+          notes: 'Pausa de 15 segundos entre as micropausas.',
+        },
+        {
+          exercisePattern: 'testa',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x12',
+          sets: 3,
+          reps: '12',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '20',
+          notes: 'Cuidado para não abrir os cotovelos.',
+        },
+      ],
+    },
+    {
+      name: 'Hipertrofia ABC - Treino B (Costas, Trapézio e Bíceps)',
+      student_group_name: 'Todos',
+      items: [
+        {
+          exercisePattern: 'puxada frontal',
+          scheme_type: 'piramide',
+          scheme_name: 'Pirâmide 4x (12-10-8-6)',
+          sets: 4,
+          reps: '12-10-8-6',
+          rep_unit: 'reps',
+          rest_time: '90',
+          rest_unit: 'seconds',
+          weight: '45/55/65/75',
+          notes: 'Trazer a barra até a altura da clavícula, peito estufado.',
+        },
+        {
+          exercisePattern: 'remada curvada',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 4x10',
+          sets: 4,
+          reps: '10',
+          rep_unit: 'reps',
+          rest_time: '75',
+          rest_unit: 'seconds',
+          weight: '50',
+          notes: 'Coluna alinhada e tronco inclinado a 45 graus.',
+        },
+        {
+          exercisePattern: 'serrote',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x12',
+          sets: 3,
+          reps: '12',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '26',
+          notes: 'Puxar em direção ao quadril ativando dorsal.',
+        },
+        {
+          exercisePattern: 'encolhimento',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 4x15',
+          sets: 4,
+          reps: '15',
+          rep_unit: 'reps',
+          rest_time: '45',
+          rest_unit: 'seconds',
+          weight: '30',
+          notes: 'Pausa de 2 segundos no pico de contração superior.',
+        },
+        {
+          exercisePattern: 'rosca direta',
+          scheme_type: 'piramide',
+          scheme_name: 'Pirâmide 4x (12-10-8-6)',
+          sets: 4,
+          reps: '12-10-8-6',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '15/20/25/30',
+          notes: 'Cotovelos firmes ao lado do corpo.',
+        },
+        {
+          exercisePattern: 'rosca martelo',
+          scheme_type: 'drop_set',
+          scheme_name: 'Drop-set 3x (10+10+10)',
+          sets: 3,
+          reps: '10-10-10',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '16/12/8',
+          notes: 'Pegada neutra para enfatizar braquiorradial e bíceps braquial.',
+        },
+      ],
+    },
+    {
+      name: 'Hipertrofia ABC - Treino C (Pernas Completo e Abdômen)',
+      student_group_name: 'Todos',
+      items: [
+        {
+          exercisePattern: 'agachamento livre',
+          scheme_type: 'piramide',
+          scheme_name: 'Pirâmide 4x (12-10-8-6)',
+          sets: 4,
+          reps: '12-10-8-6',
+          rep_unit: 'reps',
+          rest_time: '120',
+          rest_unit: 'seconds',
+          weight: '60/80/90/100',
+          notes: 'Amplitude completa com joelhos alinhados às pontas dos pés.',
+        },
+        {
+          exercisePattern: 'leg press 45',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 4x12',
+          sets: 4,
+          reps: '12',
+          rep_unit: 'reps',
+          rest_time: '90',
+          rest_unit: 'seconds',
+          weight: '180',
+          notes: 'Não hiperestender os joelhos no ponto final.',
+        },
+        {
+          exercisePattern: 'cadeira extensora',
+          scheme_type: 'drop_set',
+          scheme_name: 'Drop-set 3x (10+10+10)',
+          sets: 3,
+          reps: '10-10-10',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '50/40/30',
+          notes: 'Contração isométrica de 1 segundo no topo.',
+        },
+        {
+          exercisePattern: 'stiff com barra',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 4x10',
+          sets: 4,
+          reps: '10',
+          rep_unit: 'reps',
+          rest_time: '75',
+          rest_unit: 'seconds',
+          weight: '50',
+          notes: 'Sentir o alongamento dos isquiotibiais, coluna reta.',
+        },
+        {
+          exercisePattern: 'mesa flexora',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x12',
+          sets: 3,
+          reps: '12',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '35',
+          notes: 'Quadril colado no banco durante toda a execução.',
+        },
+        {
+          exercisePattern: 'panturrilha',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 4x15',
+          sets: 4,
+          reps: '15',
+          rep_unit: 'reps',
+          rest_time: '45',
+          rest_unit: 'seconds',
+          weight: '50',
+          notes: 'Amplitude máxima tanto no alongamento quanto na contração.',
+        },
+        {
+          exercisePattern: 'prancha',
+          scheme_type: 'ate_a_falha',
+          scheme_name: 'Até a Falha 3x',
+          sets: 3,
+          reps: 'Até a Falha',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Abdômen e glúteos contraídos sem curvar a lombar.',
+        },
+        {
+          exercisePattern: 'infra',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x15',
+          sets: 3,
+          reps: '15',
+          rep_unit: 'reps',
+          rest_time: '45',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Elevar as pernas controlando o retorno sem balançar.',
+        },
+      ],
+    },
+    {
+      name: 'Condicionamento Funcional & Queima Calórica',
+      student_group_name: 'Todos',
+      items: [
+        {
+          exercisePattern: 'esteira',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 1x20 min',
+          sets: 1,
+          reps: '20',
+          rep_unit: 'minutes',
+          rest_time: '0',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Ritmo moderado contínuo ou intervalado leve.',
+        },
+        {
+          exercisePattern: 'burpee',
+          scheme_type: 'ate_a_falha',
+          scheme_name: 'Até a Falha 4x',
+          sets: 4,
+          reps: 'Até a Falha',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Execução explosiva mantendo boa postura.',
+        },
+        {
+          exercisePattern: 'kettlebell',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 4x15',
+          sets: 4,
+          reps: '15',
+          rep_unit: 'reps',
+          rest_time: '45',
+          rest_unit: 'seconds',
+          weight: '16',
+          notes: 'Potência gerada pelo quadril e glúteos, não pelos braços.',
+        },
+        {
+          exercisePattern: 'flex',
+          scheme_type: 'ate_a_falha',
+          scheme_name: 'Até a Falha 4x',
+          sets: 4,
+          reps: 'Até a Falha',
+          rep_unit: 'reps',
+          rest_time: '60',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Descer até o peito quase encostar no chão.',
+        },
+        {
+          exercisePattern: 'bicicleta',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x20',
+          sets: 3,
+          reps: '20',
+          rep_unit: 'reps',
+          rest_time: '45',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Cotovelo oposto toca joelho oposto com rotação do tronco.',
+        },
+      ],
+    },
+    {
+      name: 'Mobilidade Articular, Pilates & Alongamento',
+      student_group_name: 'Todos',
+      items: [
+        {
+          exercisePattern: 'mobilidade tor',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x10',
+          sets: 3,
+          reps: '10',
+          rep_unit: 'reps',
+          rest_time: '30',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Respiração profunda e controlada em cada repetição.',
+        },
+        {
+          exercisePattern: 'rota',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x12',
+          sets: 3,
+          reps: '12',
+          rep_unit: 'reps',
+          rest_time: '30',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Fortalecimento do manguito rotador.',
+        },
+        {
+          exercisePattern: 'the hundred',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x100',
+          sets: 3,
+          reps: '100',
+          rep_unit: 'reps',
+          rest_time: '45',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Contração do centro de força (powerhouse).',
+        },
+        {
+          exercisePattern: 'alongamento de posterior',
+          scheme_type: 'series_retas',
+          scheme_name: 'Séries Retas 3x45 seg',
+          sets: 3,
+          reps: '45',
+          rep_unit: 'seconds',
+          rest_time: '30',
+          rest_unit: 'seconds',
+          weight: '',
+          notes: 'Manter a posição sem dar solavancos, relaxando a musculatura.',
+        },
+      ],
+    },
+  ];
+
+  for (const tpl of templatesDefinitions) {
+    const templateId = crypto.randomUUID();
+    await db.query(
+      `INSERT INTO workout_templates (id, organization_id, name, student_group_name)
+       VALUES ($1, $2, $3, $4)`,
+      [templateId, orgId, tpl.name, tpl.student_group_name]
+    );
+
+    for (let idx = 0; idx < tpl.items.length; idx++) {
+      const it = tpl.items[idx];
+      const exId = findEx(it.exercisePattern);
+
+      await db.query(
+        `INSERT INTO workout_template_items (
+          id, template_id, organization_id, position, exercise_id,
+          scheme_id, scheme_name, scheme_type, sets, reps, rep_unit, rest_time, rest_unit, weight, notes
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [
+          crypto.randomUUID(),
+          templateId,
+          orgId,
+          idx,
+          exId,
+          null,
+          it.scheme_name,
+          it.scheme_type,
+          it.sets,
+          it.reps,
+          it.rep_unit,
+          it.rest_time,
+          it.rest_unit,
+          it.weight || null,
+          it.notes,
+        ]
+      );
+    }
+  }
+  console.log(`[DB] Templates de treino semeados com sucesso para a organização ${orgId}.`);
 }
 
 async function ensureDatabaseExists(): Promise<void> {

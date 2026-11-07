@@ -61,7 +61,7 @@ interface PersonalScheduleModuleProps {
 
 export interface DayAttendanceItem {
   id: string; // único para a listagem
-  status: 'scheduled' | 'cancelled' | 'rescheduled_away' | 'rescheduled_here';
+  status: 'scheduled' | 'cancelled' | 'rescheduled_away' | 'rescheduled_here' | 'rescheduled_cancelled';
   workout: PersonalScheduledWorkoutItem;
   dayIndex: number;
   dateStr: string; // 'YYYY-MM-DD'
@@ -259,17 +259,34 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
 
           if (override) {
             if (override.status === 'cancelled') {
-              items.push({
-                id: `${wk.id}_${day.dateStr}_cancelled`,
-                status: 'cancelled',
-                workout: wk,
-                dayIndex: day.dayIndex,
-                dateStr: day.dateStr,
-                scheduledTime: wk.scheduled_time,
-                originalDate: day.dateStr,
-                overrideNotes: override.notes,
-                overrideId: override.id,
-              });
+              if (override.rescheduled_date && override.rescheduled_date !== day.dateStr) {
+                // Foi reagendado para outro dia e lá cancelado
+                items.push({
+                  id: `${wk.id}_${day.dateStr}_rescheduled_away`,
+                  status: 'rescheduled_away',
+                  workout: wk,
+                  dayIndex: day.dayIndex,
+                  dateStr: day.dateStr,
+                  scheduledTime: wk.scheduled_time,
+                  originalDate: day.dateStr,
+                  targetDate: override.rescheduled_date,
+                  targetTime: override.rescheduled_time,
+                  overrideNotes: override.notes ? `Reagendado e cancelado: ${override.notes}` : 'Reagendado e cancelado no destino',
+                  overrideId: override.id,
+                });
+              } else {
+                items.push({
+                  id: `${wk.id}_${day.dateStr}_cancelled`,
+                  status: 'cancelled',
+                  workout: wk,
+                  dayIndex: day.dayIndex,
+                  dateStr: day.dateStr,
+                  scheduledTime: wk.scheduled_time,
+                  originalDate: day.dateStr,
+                  overrideNotes: override.notes,
+                  overrideId: override.id,
+                });
+              }
             } else if (override.status === 'rescheduled') {
               items.push({
                 id: `${wk.id}_${day.dateStr}_rescheduled_away`,
@@ -301,7 +318,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
 
       // 2. Treinos reagendados PARA este dia (vindos de outra data)
       const rescheduledHere = overrides.filter(
-        (o) => o.status === 'rescheduled' && o.rescheduled_date === day.dateStr
+        (o) => (o.status === 'rescheduled' || o.status === 'cancelled') && o.rescheduled_date === day.dateStr
       );
 
       for (const ov of rescheduledHere) {
@@ -319,9 +336,11 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
             continue;
           }
 
+          const status = ov.status === 'cancelled' ? 'rescheduled_cancelled' : 'rescheduled_here';
+
           items.push({
-            id: `${wk.id}_${day.dateStr}_rescheduled_here`,
-            status: 'rescheduled_here',
+            id: `${wk.id}_${day.dateStr}_${status}`,
+            status,
             workout: wk,
             dayIndex: day.dayIndex,
             dateStr: day.dateStr,
@@ -365,14 +384,18 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
   }, [weekAttendanceByDay]);
 
   const metrics = useMemo(() => {
-    const activeItems = allWeekItems.filter((i) => i.status !== 'cancelled' && i.status !== 'rescheduled_away');
+    const activeItems = allWeekItems.filter(
+      (i) => i.status !== 'cancelled' && i.status !== 'rescheduled_away' && i.status !== 'rescheduled_cancelled'
+    );
     const uniqueStudents = new Set(activeItems.map((i) => i.workout.student_id));
     const todayIndex = new Date().getDay();
     const todayItems = (weekAttendanceByDay.get(todayIndex) || []).filter(
-      (i) => i.status !== 'cancelled' && i.status !== 'rescheduled_away'
+      (i) => i.status !== 'cancelled' && i.status !== 'rescheduled_away' && i.status !== 'rescheduled_cancelled'
     );
     const withTimeCount = activeItems.filter((i) => Boolean(i.scheduledTime)).length;
-    const cancelledCount = allWeekItems.filter((i) => i.status === 'cancelled').length;
+    const cancelledCount = allWeekItems.filter(
+      (i) => i.status === 'cancelled' || i.status === 'rescheduled_cancelled'
+    ).length;
 
     return {
       totalWorkouts: activeItems.length,
@@ -412,13 +435,16 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
     if (!cancellingItem) return;
     setSavingCancel(true);
     try {
+      const isRescheduled = cancellingItem.status === 'rescheduled_here' || Boolean(cancellingItem.originalDate);
       await apiFetch('/api/org/scheduled-workout-overrides', {
         method: 'POST',
         body: JSON.stringify({
           scheduled_workout_id: cancellingItem.workout.id,
           student_id: cancellingItem.workout.student_id,
-          original_date: cancellingItem.dateStr,
+          original_date: cancellingItem.originalDate || cancellingItem.dateStr,
           status: 'cancelled',
+          rescheduled_date: isRescheduled ? cancellingItem.dateStr : null,
+          rescheduled_time: isRescheduled ? (cancellingItem.scheduledTime || null) : null,
           notes: cancelNotes.trim() || null,
         }),
       });
@@ -438,7 +464,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
     setReschedulingItem(item);
     setRescheduleDate(item.dateStr);
     setRescheduleTime(item.scheduledTime || item.workout.scheduled_time || '');
-    setRescheduleNotes('');
+    setRescheduleNotes(item.overrideNotes || '');
   };
 
   // AÇÕES: Confirmar reagendamento
@@ -839,13 +865,15 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                       const isCancelled = item.status === 'cancelled';
                       const isRescheduledAway = item.status === 'rescheduled_away';
                       const isRescheduledHere = item.status === 'rescheduled_here';
+                      const isRescheduledCancelled = item.status === 'rescheduled_cancelled';
+                      const isAnyCancelled = isCancelled || isRescheduledCancelled;
 
                       return (
                         <div
                           key={item.id}
                           onClick={() => setInspectingItem(item)}
                           className={`p-3 rounded-xl border transition group flex flex-col justify-between gap-2.5 cursor-pointer ${
-                            isCancelled
+                            isAnyCancelled
                               ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50 opacity-80'
                               : isRescheduledAway
                               ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50 opacity-80'
@@ -857,7 +885,12 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                           <div className="space-y-1.5">
                             {/* Badges de Status e Horário */}
                             <div className="flex items-center justify-between gap-1 flex-wrap">
-                              {isCancelled ? (
+                              {isRescheduledCancelled ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/90 dark:text-rose-300">
+                                  <Ban className="w-2.5 h-2.5" />
+                                  Cancelado (Reagendado)
+                                </span>
+                              ) : isCancelled ? (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/90 dark:text-rose-300">
                                   <Ban className="w-2.5 h-2.5" />
                                   Cancelado no dia
@@ -898,13 +931,13 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                             {/* Informações do Aluno e Treino */}
                             <div>
                               <div className={`font-bold text-xs truncate flex items-center gap-1 ${
-                                isCancelled ? 'text-slate-500 line-through' : 'text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400'
+                                isAnyCancelled ? 'text-slate-500 line-through' : 'text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400'
                               }`}>
                                 <User className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                 <span className="truncate">{item.workout.student_name}</span>
                               </div>
                               <div className={`text-[11px] font-semibold truncate mt-0.5 flex items-center gap-1 ${
-                                isCancelled ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-300'
+                                isAnyCancelled ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-300'
                               }`}>
                                 <Dumbbell className="w-2.5 h-2.5 text-slate-400 shrink-0" />
                                 <span className="truncate">{item.workout.name}</span>
@@ -927,6 +960,13 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                               </div>
                             )}
 
+                            {isRescheduledCancelled && (
+                              <div className="text-[10px] text-rose-700 dark:text-rose-300 bg-rose-100/60 dark:bg-rose-950/40 p-1.5 rounded-lg">
+                                {item.originalDate && <div>Originalmente de: <strong>{formatDatePtBr(item.originalDate)}</strong></div>}
+                                {item.overrideNotes && <div className="italic mt-0.5">Motivo: "{item.overrideNotes}"</div>}
+                              </div>
+                            )}
+
                             {isCancelled && item.overrideNotes && (
                               <div className="text-[10px] text-rose-700 dark:text-rose-300 italic">
                                 Motivo: "{item.overrideNotes}"
@@ -934,7 +974,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                             )}
 
                             {/* Exercícios resumo */}
-                            {!isCancelled && !isRescheduledAway && item.workout.items.length > 0 && (
+                            {!isAnyCancelled && !isRescheduledAway && item.workout.items.length > 0 && (
                               <div className="pt-1.5 border-t border-slate-200/50 dark:border-slate-700/50 space-y-0.5">
                                 {item.workout.items.slice(0, 3).map((it, i) => (
                                   <div
@@ -957,8 +997,69 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                           </div>
 
                           {/* Botões de Ação Direta no Card */}
-                          <div className="pt-2 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between gap-1.5 text-[10px]">
-                            {isCancelled || isRescheduledAway || isRescheduledHere ? (
+                          <div className="pt-2 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between gap-1.5 text-[10px] flex-wrap">
+                            {isRescheduledHere ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openRescheduleModal(item);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
+                                  title="Reagendar este treino"
+                                >
+                                  <CalendarClock className="w-3 h-3" /> Reagendar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openCancelModal(item);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold hover:underline cursor-pointer"
+                                  title="Cancelar atendimento reagendado"
+                                >
+                                  <Ban className="w-3 h-3" /> Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRestore(item.workout.id, item.originalDate || item.dateStr);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
+                                  title="Restaurar atendimento para a programação original"
+                                >
+                                  <RotateCcw className="w-3 h-3" /> Restaurar
+                                </button>
+                              </div>
+                            ) : isRescheduledCancelled ? (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openRescheduleModal(item);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
+                                  title="Reagendar este treino"
+                                >
+                                  <CalendarClock className="w-3 h-3" /> Reagendar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRestore(item.workout.id, item.originalDate || item.dateStr);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
+                                  title="Restaurar atendimento para a programação original"
+                                >
+                                  <RotateCcw className="w-3 h-3" /> Restaurar
+                                </button>
+                              </div>
+                            ) : isCancelled || isRescheduledAway ? (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -997,7 +1098,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                               </div>
                             )}
 
-                            <span className="text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 font-medium">
+                            <span className="text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 font-medium ml-auto">
                               Ver →
                             </span>
                           </div>
@@ -1046,13 +1147,15 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                     const isCancelled = item.status === 'cancelled';
                     const isRescheduledAway = item.status === 'rescheduled_away';
                     const isRescheduledHere = item.status === 'rescheduled_here';
+                    const isRescheduledCancelled = item.status === 'rescheduled_cancelled';
+                    const isAnyCancelled = isCancelled || isRescheduledCancelled;
 
                     return (
                       <div
                         key={item.id}
                         onClick={() => setInspectingItem(item)}
                         className={`py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl px-2.5 transition cursor-pointer ${
-                          isCancelled
+                          isAnyCancelled
                             ? 'bg-rose-50/40 dark:bg-rose-950/20 opacity-80'
                             : isRescheduledAway
                             ? 'bg-amber-50/40 dark:bg-amber-950/20 opacity-80'
@@ -1062,14 +1165,23 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                         }`}
                       >
                         <div className="flex items-start sm:items-center gap-3">
-                          <div className="w-20 shrink-0">
-                            {isCancelled ? (
+                          <div className="w-24 shrink-0">
+                            {isRescheduledCancelled ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                                <Ban className="w-3 h-3" /> Cancelado
+                              </span>
+                            ) : isCancelled ? (
                               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
                                 <Ban className="w-3 h-3" /> Cancelado
                               </span>
                             ) : isRescheduledAway ? (
                               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
                                 <ArrowRightLeft className="w-3 h-3" /> Movido
+                              </span>
+                            ) : isRescheduledHere ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                                <Clock className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                                {item.scheduledTime || 'Horário livre'}
                               </span>
                             ) : item.scheduledTime ? (
                               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-emerald-100/90 text-emerald-800 dark:bg-emerald-950/90 dark:text-emerald-300">
@@ -1085,7 +1197,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
 
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className={`font-bold text-sm ${isCancelled ? 'line-through text-slate-400' : 'text-slate-900 dark:text-white'}`}>
+                              <h4 className={`font-bold text-sm ${isAnyCancelled ? 'line-through text-slate-400' : 'text-slate-900 dark:text-white'}`}>
                                 {item.workout.student_name}
                               </h4>
                               <span
@@ -1115,7 +1227,12 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                               )}
                               {isRescheduledHere && (
                                 <span className="text-purple-700 dark:text-purple-300 font-semibold">
-                                  — Transferido da data {formatDatePtBr(item.originalDate)}
+                                  — Reagendado da data {formatDatePtBr(item.originalDate)}
+                                </span>
+                              )}
+                              {isRescheduledCancelled && (
+                                <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                                  — Reagendado de {formatDatePtBr(item.originalDate)} e Cancelado {item.overrideNotes ? `(${item.overrideNotes})` : ''}
                                 </span>
                               )}
                               {isCancelled && item.overrideNotes && (
@@ -1127,8 +1244,69 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 self-end sm:self-center">
-                          {isCancelled || isRescheduledAway || isRescheduledHere ? (
+                        <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                          {isRescheduledHere ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openRescheduleModal(item);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline px-2 py-1 cursor-pointer"
+                                title="Reagendar este treino"
+                              >
+                                <CalendarClock className="w-3.5 h-3.5" /> Reagendar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openCancelModal(item);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline px-2 py-1 cursor-pointer"
+                                title="Cancelar atendimento reagendado"
+                              >
+                                <Ban className="w-3.5 h-3.5" /> Cancelar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRestore(item.workout.id, item.originalDate || item.dateStr);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline px-2 py-1 cursor-pointer"
+                                title="Restaurar atendimento para a programação original"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" /> Restaurar
+                              </button>
+                            </>
+                          ) : isRescheduledCancelled ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openRescheduleModal(item);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline px-2 py-1 cursor-pointer"
+                                title="Reagendar este treino"
+                              >
+                                <CalendarClock className="w-3.5 h-3.5" /> Reagendar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRestore(item.workout.id, item.originalDate || item.dateStr);
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline px-2 py-1 cursor-pointer"
+                                title="Restaurar atendimento para a programação original"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" /> Restaurar
+                              </button>
+                            </>
+                          ) : isCancelled || isRescheduledAway ? (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1252,6 +1430,30 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                   className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition cursor-pointer shrink-0"
                 >
                   <RotateCcw className="w-3 h-3 inline mr-1" /> Voltar à Data Original
+                </button>
+              </div>
+            )}
+
+            {inspectingItem.status === 'rescheduled_cancelled' && (
+              <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-center justify-between gap-3 text-xs text-rose-800 dark:text-rose-300">
+                <div className="flex items-center gap-2">
+                  <Ban className="w-5 h-5 text-rose-600 shrink-0" />
+                  <div>
+                    <span className="font-bold">Este atendimento reagendado está cancelado para esta data ({formatDatePtBr(inspectingItem.dateStr)}).</span>
+                    {inspectingItem.originalDate && (
+                      <p className="mt-0.5 text-[11px]">Originalmente de: {formatDatePtBr(inspectingItem.originalDate)}</p>
+                    )}
+                    {inspectingItem.overrideNotes && (
+                      <p className="mt-0.5 italic">Motivo: "{inspectingItem.overrideNotes}"</p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRestore(inspectingItem.workout.id, inspectingItem.originalDate || inspectingItem.dateStr)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition cursor-pointer shrink-0"
+                >
+                  <RotateCcw className="w-3 h-3 inline mr-1" /> Restaurar Atendimento
                 </button>
               </div>
             )}
@@ -1381,7 +1583,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
             </div>
 
             {/* Ações Específicas para o Atendimento */}
-            {inspectingItem.status === 'scheduled' && (
+            {(inspectingItem.status === 'scheduled' || inspectingItem.status === 'rescheduled_here') && (
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-slate-600 dark:text-slate-300">
                   <span className="font-bold">Gerenciar atendimento deste dia:</span>
@@ -1405,6 +1607,35 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                   >
                     <Ban className="w-3.5 h-3.5" />
                     Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {inspectingItem.status === 'rescheduled_cancelled' && (
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-slate-600 dark:text-slate-300">
+                  <span className="font-bold">Gerenciar atendimento cancelado:</span>
+                  <p className="text-[11px] text-slate-400">
+                    Você pode reagendar este treino para uma nova data ou restaurá-lo para a rotina semanal original.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openRescheduleModal(inspectingItem)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold hover:bg-indigo-100 transition cursor-pointer"
+                  >
+                    <CalendarClock className="w-3.5 h-3.5" />
+                    Reagendar para Outra Data
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRestore(inspectingItem.workout.id, inspectingItem.originalDate || inspectingItem.dateStr)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Restaurar Padrão
                   </button>
                 </div>
               </div>

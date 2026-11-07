@@ -56,6 +56,7 @@ import { WorkoutExercisesBuilder } from './WorkoutExercisesBuilder';
 
 interface StudentsModuleProps {
   org: Organization;
+  initialStudentId?: string | null;
 }
 
 const emptyStudent = {
@@ -86,7 +87,7 @@ function formatDatePtBr(isoDate?: string | null): string {
   return isoDate;
 }
 
-export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
+export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStudentId }) => {
   const [students, setStudents] = useState<Student[]>([]);
   const [groups, setGroups] = useState<StudentGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,7 +105,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
   const [savingGroup, setSavingGroup] = useState(false);
 
   // Ficha do Aluno Selecionado
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId || null);
   const [studentTab, setStudentTab] = useState<'agenda' | 'free_workouts'>('agenda');
   const [studentWorkouts, setStudentWorkouts] = useState<StudentWorkout[]>([]);
   const [scheduledWorkouts, setScheduledWorkouts] = useState<StudentScheduledWorkout[]>([]);
@@ -186,6 +187,12 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
       loadStudentDetails(selectedStudentId);
     }
   }, [selectedStudentId]);
+
+  useEffect(() => {
+    if (initialStudentId) {
+      setSelectedStudentId(initialStudentId);
+    }
+  }, [initialStudentId]);
 
   const filtered = useMemo(() => {
     const t = search.trim().toLowerCase();

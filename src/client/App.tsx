@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeftRight,
   Building2,
+  Calendar,
   ChevronDown,
   ClipboardList,
   Dumbbell,
@@ -28,13 +29,14 @@ import {
 } from './api';
 import { MasterPanel } from './components/MasterPanel';
 import { OrgDashboard } from './components/OrgDashboard';
+import { PersonalScheduleModule } from './components/PersonalScheduleModule';
 import { StudentsModule } from './components/StudentsModule';
 import { ExercisesModule } from './components/ExercisesModule';
 import { WorkoutTemplatesModule } from './components/WorkoutTemplatesModule';
 import { SettingsModule } from './components/SettingsModule';
 import { ErrorBox, btnPrimary, inputCls, labelCls } from './components/ui';
 
-type View = 'dashboard' | 'students' | 'exercises' | 'workout_templates' | 'settings';
+type View = 'dashboard' | 'schedule' | 'students' | 'exercises' | 'workout_templates' | 'settings';
 
 /* ---------------- Tema claro/escuro (override do esquema do sistema) ---------------- */
 const systemDark = () => window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -412,6 +414,7 @@ export default function App() {
     getActiveOrgId() ? 'org' : 'choice'
   );
   const [view, setView] = useState<View>('dashboard');
+  const [scheduleNavStudentId, setScheduleNavStudentId] = useState<string | null>(null);
   const [exerciseSubTab, setExerciseSubTab] = useState<'exercises' | 'muscle_groups' | 'categories'>('exercises');
   const [exercisesMenuOpen, setExercisesMenuOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -565,6 +568,7 @@ export default function App() {
     children?: { id: View; label: string; icon: any }[];
   }[] = [
     { id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard, show: true },
+    { id: 'schedule', label: 'Agenda do Personal', icon: Calendar, show: org.mod_students !== false },
     { id: 'students', label: 'Gestão de Alunos', icon: GraduationCap, show: org.mod_students !== false },
     {
       id: 'exercises',
@@ -587,6 +591,7 @@ export default function App() {
   const go = (v: View, sub?: 'exercises' | 'muscle_groups' | 'categories') => {
     if (sub) setExerciseSubTab(sub);
     if (v === 'exercises' || v === 'workout_templates') setExercisesMenuOpen(true);
+    if (v !== 'students') setScheduleNavStudentId(null);
     setView(v);
     setMenuOpen(false);
   };
@@ -749,7 +754,21 @@ export default function App() {
               onNavigate={(v, sub) => go(v, sub)}
             />
           )}
-          {currentView === 'students' && <StudentsModule org={org} />}
+          {currentView === 'schedule' && (
+            <PersonalScheduleModule
+              org={org}
+              onNavigateToStudent={(studentId) => {
+                setScheduleNavStudentId(studentId);
+                setView('students');
+              }}
+            />
+          )}
+          {currentView === 'students' && (
+            <StudentsModule
+              org={org}
+              initialStudentId={scheduleNavStudentId}
+            />
+          )}
           {currentView === 'exercises' && <ExercisesModule initialSubTab={exerciseSubTab} />}
           {currentView === 'workout_templates' && <WorkoutTemplatesModule />}
           {currentView === 'settings' && <SettingsModule currentUser={user} />}

@@ -170,6 +170,15 @@ export interface StudentScheduledWorkout {
   updated_at?: string;
 }
 
+export interface PersonalScheduledWorkoutItem extends StudentScheduledWorkout {
+  student_name: string;
+  student_phone?: string | null;
+  student_email?: string | null;
+  student_gender?: Student['gender'];
+  student_group_name?: string;
+  student_schedule_type?: ScheduleType;
+}
+
 export const DAYS_OF_WEEK = [
   'Domingo',
   'Segunda-feira',

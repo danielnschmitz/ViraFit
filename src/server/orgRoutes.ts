@@ -1634,6 +1634,71 @@ orgRouter.delete('/students/:studentId/workouts/:workoutId', async (req: AuthReq
    AGENDA DE TREINOS DO ALUNO (Scheduled Workouts: fixed_days & sequence)
    ========================================================================== */
 
+async function fetchPersonalWeeklySchedule(orgId: string) {
+  const workoutsRes = await pool.query(
+    `SELECT 
+       ssw.*,
+       s.name AS student_name,
+       s.phone AS student_phone,
+       s.email AS student_email,
+       s.gender AS student_gender,
+       s.group_name AS student_group_name,
+       s.schedule_type AS student_schedule_type
+     FROM student_scheduled_workouts ssw
+     JOIN students s ON ssw.student_id = s.id AND ssw.organization_id = s.organization_id
+     WHERE ssw.organization_id = $1
+       AND s.schedule_type = 'fixed_days'
+       AND ssw.schedule_type = 'fixed_days'
+     ORDER BY ssw.day_of_week ASC, ssw.scheduled_time ASC NULLS LAST, s.name ASC, ssw.name ASC, ssw.created_at ASC`,
+    [orgId]
+  );
+
+  if (workoutsRes.rows.length === 0) return [];
+
+  const workoutIds = workoutsRes.rows.map((r) => r.id);
+  const itemsRes = await pool.query(
+    `SELECT sswi.*,
+            e.name AS exercise_name,
+            e.media_type,
+            e.media_url,
+            e.muscle_group_id,
+            mg.name AS muscle_group_name,
+            e.category_id,
+            ec.name AS category_name,
+            e.is_favorite
+     FROM student_scheduled_workout_items sswi
+     JOIN exercises e ON sswi.exercise_id = e.id
+     JOIN muscle_groups mg ON e.muscle_group_id = mg.id
+     JOIN exercise_categories ec ON e.category_id = ec.id
+     WHERE sswi.scheduled_workout_id = ANY($1::varchar[])
+     ORDER BY sswi.position ASC, sswi.created_at ASC`,
+    [workoutIds]
+  );
+
+  const itemsByWorkout = new Map<string, any[]>();
+  for (const row of itemsRes.rows) {
+    const list = itemsByWorkout.get(row.scheduled_workout_id) || [];
+    list.push(row);
+    itemsByWorkout.set(row.scheduled_workout_id, list);
+  }
+
+  return workoutsRes.rows.map((wk) => ({
+    ...wk,
+    items: itemsByWorkout.get(wk.id) || [],
+  }));
+}
+
+orgRouter.get('/personal-schedule', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const workouts = await fetchPersonalWeeklySchedule(orgId);
+    res.json(workouts);
+  } catch (err) {
+    console.error('[PersonalSchedule] Erro ao listar agenda do personal:', err);
+    res.status(500).json({ error: 'Erro ao carregar agenda do personal.' });
+  }
+});
+
 async function fetchStudentScheduledWorkoutsWithItems(
   orgId: string,
   studentId: string,

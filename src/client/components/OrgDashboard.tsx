@@ -13,7 +13,7 @@ import { LoadingState, cardCls } from './ui';
 
 interface OrgDashboardProps {
   org: Organization;
-  onNavigate: (view: 'students' | 'exercises', subTab?: 'exercises' | 'muscle_groups' | 'categories') => void;
+  onNavigate: (view: 'students' | 'exercises' | 'schedule', subTab?: 'exercises' | 'muscle_groups' | 'categories') => void;
 }
 
 export const OrgDashboard: React.FC<OrgDashboardProps> = ({ org, onNavigate }) => {
@@ -133,13 +133,22 @@ export const OrgDashboard: React.FC<OrgDashboardProps> = ({ org, onNavigate }) =
                     </div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('students')}
-                  className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer pt-2 border-t border-slate-100 dark:border-slate-800"
-                >
-                  Acessar Gestão de Alunos <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('students')}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    Acessar Gestão de Alunos <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('schedule')}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
+                  >
+                    Ver Agenda do Personal <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             )}
 

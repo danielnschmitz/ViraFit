@@ -288,7 +288,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
 
       {/* Barra de Filtros e Busca */}
       <div className={`${cardCls} p-4 space-y-3`}>
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col md:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
             <input
@@ -301,32 +301,34 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
             />
           </div>
 
-          <select
-            aria-label="Filtrar por grupo"
-            value={selectedGroup}
-            onChange={(e) => setSelectedGroup(e.target.value)}
-            className={`${inputCls} sm:w-48`}
-          >
-            <option value="">Todos os grupos</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.name}>
-                {g.name}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-wrap sm:flex-nowrap gap-3">
+            <select
+              aria-label="Filtrar por grupo"
+              value={selectedGroup}
+              onChange={(e) => setSelectedGroup(e.target.value)}
+              className={`${inputCls} w-full sm:w-52`}
+            >
+              <option value="">Todos os grupos</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.name}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
 
-          <select
-            aria-label="Filtrar por turno ou horário"
-            value={selectedShift}
-            onChange={(e) => setSelectedShift(e.target.value as any)}
-            className={`${inputCls} sm:w-48`}
-          >
-            <option value="all">Todos os horários</option>
-            <option value="morning">Manhã (antes de 12:00)</option>
-            <option value="afternoon">Tarde (12:00 às 18:00)</option>
-            <option value="night">Noite (a partir de 18:00)</option>
-            <option value="no_time">Sem horário marcado</option>
-          </select>
+            <select
+              aria-label="Filtrar por turno ou horário"
+              value={selectedShift}
+              onChange={(e) => setSelectedShift(e.target.value as any)}
+              className={`${inputCls} w-full sm:w-56`}
+            >
+              <option value="all">Todos os horários</option>
+              <option value="morning">Manhã (antes de 12:00)</option>
+              <option value="afternoon">Tarde (12:00 às 18:00)</option>
+              <option value="night">Noite (a partir de 18:00)</option>
+              <option value="no_time">Sem horário marcado</option>
+            </select>
+          </div>
         </div>
 
         {/* Pílulas de filtro por dia da semana */}
@@ -405,7 +407,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
 
       {/* MODO 1: GRADE SEMANAL (7 DIAS) */}
       {!loading && viewMode === 'grid' && filteredWorkouts.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3.5 items-start">
           {DAYS_OF_WEEK.map((dayName, dayIndex) => {
             if (selectedDayFilter !== 'all' && selectedDayFilter !== dayIndex) {
               return null;
@@ -423,7 +425,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
             return (
               <div
                 key={dayIndex}
-                className={`flex flex-col rounded-2xl border transition ${
+                className={`flex flex-col rounded-2xl border transition min-h-[460px] ${
                   isToday
                     ? 'bg-white dark:bg-slate-900 border-emerald-500/80 dark:border-emerald-500/80 ring-2 ring-emerald-500/20 shadow-md'
                     : dayWorkouts.length > 0
@@ -467,9 +469,9 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                 </div>
 
                 {/* Lista de Treinos Agendados no Dia */}
-                <div className="p-2.5 flex-1 space-y-2.5 min-h-[160px]">
+                <div className="p-2.5 flex-1 flex flex-col space-y-2.5">
                   {dayWorkouts.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center py-8 text-center text-slate-400">
+                    <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-slate-400">
                       <span className="text-[11px] italic">Sem treinos agendados</span>
                     </div>
                   ) : (
@@ -477,7 +479,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                       <div
                         key={wk.id}
                         onClick={() => setInspectingWorkout(wk)}
-                        className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 hover:border-emerald-500 dark:hover:border-emerald-500 transition group flex flex-col justify-between gap-2 shadow-xs cursor-pointer"
+                        className="p-3 rounded-xl bg-slate-50/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 hover:border-emerald-500 dark:hover:border-emerald-500 hover:shadow-xs transition group flex flex-col justify-between gap-2 cursor-pointer"
                       >
                         <div className="space-y-1.5">
                           {/* Horário de Execução em destaque */}
@@ -520,7 +522,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                           {/* Exercícios resumo */}
                           {wk.items.length > 0 && (
                             <div className="pt-1.5 border-t border-slate-200/50 dark:border-slate-700/50 space-y-0.5">
-                              {wk.items.slice(0, 2).map((it, i) => (
+                              {wk.items.slice(0, 3).map((it, i) => (
                                 <div
                                   key={it.id || i}
                                   className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between gap-1"
@@ -531,9 +533,9 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                                   </span>
                                 </div>
                               ))}
-                              {wk.items.length > 2 && (
+                              {wk.items.length > 3 && (
                                 <div className="text-[9px] text-slate-400 italic">
-                                  +{wk.items.length - 2} exercícios...
+                                  +{wk.items.length - 3} mais exercícios...
                                 </div>
                               )}
                             </div>

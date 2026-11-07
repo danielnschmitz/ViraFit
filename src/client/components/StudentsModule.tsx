@@ -1595,7 +1595,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
 
             {/* FORMATO 1: VISUALIZAÇÃO EM CALENDÁRIO SEMANAL (Dias Fixos) */}
             {!loadingStudentData && !isSequence && scheduledWorkouts.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3.5 items-start">
                 {DAYS_OF_WEEK.map((dayName, dayIndex) => {
                   const dayWorkouts = scheduledWorkouts
                     .filter((sw) => sw.day_of_week === dayIndex)
@@ -1607,7 +1607,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                   return (
                     <div
                       key={dayIndex}
-                      className={`flex flex-col rounded-2xl border transition ${
+                      className={`flex flex-col rounded-2xl border transition min-h-[460px] ${
                         dayWorkouts.length > 0
                           ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm'
                           : 'bg-slate-50/70 dark:bg-slate-900/40 border-dashed border-slate-200 dark:border-slate-800'
@@ -1644,9 +1644,9 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                       </div>
 
                       {/* Lista de Treinos do Dia */}
-                      <div className="p-2.5 flex-1 space-y-2.5 min-h-[140px]">
+                      <div className="p-2.5 flex-1 flex flex-col space-y-2.5">
                         {dayWorkouts.length === 0 ? (
-                          <div className="h-full flex flex-col items-center justify-center py-6 text-center text-slate-400">
+                          <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-slate-400">
                             <span className="text-[11px] italic">Sem treinos</span>
                             <button
                               type="button"
@@ -1762,7 +1762,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
             {/* FORMATO 2: VISUALIZAÇÃO EM SEQUÊNCIA (Cards Cíclicos) */}
             {!loadingStudentData && isSequence && scheduledWorkouts.length > 0 && (
               <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {[...scheduledWorkouts]
                     .sort((a, b) => (a.sequence_order || 1) - (b.sequence_order || 1))
                     .map((wk, idx, array) => {

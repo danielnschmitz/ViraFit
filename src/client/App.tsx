@@ -747,7 +747,13 @@ export default function App() {
           <Logo />
           <ThemeToggle {...theme} />
         </header>
-        <main className="p-4 sm:p-6 max-w-7xl w-full mx-auto">
+        <main
+          className={`p-4 sm:p-6 w-full transition-all duration-150 ${
+            currentView === 'schedule' || currentView === 'students'
+              ? 'max-w-none px-4 sm:px-6 lg:px-8'
+              : 'max-w-7xl mx-auto'
+          }`}
+        >
           {currentView === 'dashboard' && (
             <OrgDashboard
               org={org}

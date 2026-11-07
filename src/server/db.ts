@@ -818,6 +818,21 @@ export async function initDatabase(): Promise<void> {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS scheduled_workout_overrides (
+        id VARCHAR(36) PRIMARY KEY,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        scheduled_workout_id VARCHAR(36) NOT NULL REFERENCES student_scheduled_workouts(id) ON DELETE CASCADE,
+        student_id VARCHAR(36) NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        original_date VARCHAR(20) NOT NULL,
+        status VARCHAR(30) NOT NULL, -- 'cancelled', 'rescheduled', 'completed'
+        rescheduled_date VARCHAR(20),
+        rescheduled_time VARCHAR(10),
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT uq_scheduled_workout_override UNIQUE(scheduled_workout_id, original_date)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_users_org ON users(organization_id);
       CREATE INDEX IF NOT EXISTS idx_students_org ON students(organization_id, name);
       CREATE INDEX IF NOT EXISTS idx_muscle_groups_org ON muscle_groups(organization_id, name);
@@ -830,6 +845,8 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_student_workout_items_wk ON student_workout_items(workout_id, position);
       CREATE INDEX IF NOT EXISTS idx_student_scheduled_wk_student ON student_scheduled_workouts(organization_id, student_id);
       CREATE INDEX IF NOT EXISTS idx_student_scheduled_items_wk ON student_scheduled_workout_items(scheduled_workout_id, position);
+      CREATE INDEX IF NOT EXISTS idx_workout_overrides_lookup ON scheduled_workout_overrides(organization_id, original_date);
+      CREATE INDEX IF NOT EXISTS idx_workout_overrides_student ON scheduled_workout_overrides(organization_id, student_id);
     `);
 
     // Garantir criação do usuário Master padrão ('master' / 'admin123')

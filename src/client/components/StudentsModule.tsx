@@ -1,11 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertCircle,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
+  ArrowRightLeft,
   ArrowUp,
+  Ban,
   Calendar,
+  CalendarClock,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
   Clock,
@@ -19,6 +24,7 @@ import {
   Phone,
   Plus,
   Repeat,
+  RotateCcw,
   Search,
   Sparkles,
   Trash2,
@@ -31,6 +37,7 @@ import {
   Organization,
   SCHEME_TYPES_INFO,
   ScheduleType,
+  ScheduledWorkoutOverride,
   Student,
   StudentGroup,
   StudentScheduledWorkout,
@@ -87,6 +94,21 @@ function formatDatePtBr(isoDate?: string | null): string {
   return isoDate;
 }
 
+function formatDateISO(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getSundayOfWeek(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  d.setDate(d.getDate() - day);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStudentId }) => {
   const [students, setStudents] = useState<Student[]>([]);
   const [groups, setGroups] = useState<StudentGroup[]>([]);
@@ -138,6 +160,73 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
   const [selectedTemplateForScheduled, setSelectedTemplateForScheduled] = useState('');
   const [selectedStudentWorkoutForScheduled, setSelectedStudentWorkoutForScheduled] = useState('');
   const [savingScheduled, setSavingScheduled] = useState(false);
+
+  // Controle de Semana e Overrides na Agenda do Aluno
+  const [studentWeekOffset, setStudentWeekOffset] = useState<number>(0);
+  const [studentOverrides, setStudentOverrides] = useState<ScheduledWorkoutOverride[]>([]);
+
+  // Estados de cancelamento / reagendamento na ficha do aluno
+  const [studentCancellingItem, setStudentCancellingItem] = useState<{
+    workout: StudentScheduledWorkout;
+    dateStr: string;
+    scheduledTime?: string | null;
+  } | null>(null);
+  const [studentCancelNotes, setStudentCancelNotes] = useState('');
+  const [studentSavingCancel, setStudentSavingCancel] = useState(false);
+
+  const [studentReschedulingItem, setStudentReschedulingItem] = useState<{
+    workout: StudentScheduledWorkout;
+    dateStr: string;
+    scheduledTime?: string | null;
+  } | null>(null);
+  const [studentRescheduleDate, setStudentRescheduleDate] = useState('');
+  const [studentRescheduleTime, setStudentRescheduleTime] = useState('');
+  const [studentRescheduleNotes, setStudentRescheduleNotes] = useState('');
+  const [studentSavingReschedule, setStudentSavingReschedule] = useState(false);
+
+  const studentWeekDays = useMemo(() => {
+    const now = new Date();
+    const sunday = getSundayOfWeek(now);
+    sunday.setDate(sunday.getDate() + studentWeekOffset * 7);
+
+    const days: {
+      dayIndex: number;
+      date: Date;
+      dateStr: string;
+      dayFormatted: string;
+      dayName: string;
+      isToday: boolean;
+    }[] = [];
+
+    const todayStr = formatDateISO(now);
+
+    for (let i = 0; i < 7; i++) {
+      const cur = new Date(sunday);
+      cur.setDate(sunday.getDate() + i);
+      const dateStr = formatDateISO(cur);
+      days.push({
+        dayIndex: i,
+        date: cur,
+        dateStr,
+        dayFormatted: `${String(cur.getDate()).padStart(2, '0')}/${String(cur.getMonth() + 1).padStart(2, '0')}`,
+        dayName: DAYS_OF_WEEK[i],
+        isToday: dateStr === todayStr,
+      });
+    }
+
+    return days;
+  }, [studentWeekOffset]);
+
+  const loadStudentOverrides = async (start: string, end: string, sId: string) => {
+    try {
+      const data = await apiFetch<ScheduledWorkoutOverride[]>(
+        `/api/org/scheduled-workout-overrides?startDate=${start}&endDate=${end}&studentId=${sId}`
+      );
+      setStudentOverrides(data);
+    } catch (err: any) {
+      console.error('[StudentOverrides] Erro ao carregar exceções:', err);
+    }
+  };
 
   const selectedStudent = useMemo(
     () => students.find((s) => s.id === selectedStudentId) || null,
@@ -193,6 +282,86 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
       setSelectedStudentId(initialStudentId);
     }
   }, [initialStudentId]);
+
+  useEffect(() => {
+    if (selectedStudentId && studentWeekDays.length === 7) {
+      loadStudentOverrides(studentWeekDays[0].dateStr, studentWeekDays[6].dateStr, selectedStudentId);
+    }
+  }, [selectedStudentId, studentWeekDays]);
+
+  const handleStudentRestore = async (scheduledWorkoutId: string, originalDate: string) => {
+    if (!window.confirm('Deseja restaurar este atendimento para o padrão semanal original?')) return;
+    try {
+      await apiFetch('/api/org/scheduled-workout-overrides', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          scheduled_workout_id: scheduledWorkoutId,
+          original_date: originalDate,
+        }),
+      });
+      if (selectedStudentId) {
+        await loadStudentOverrides(studentWeekDays[0].dateStr, studentWeekDays[6].dateStr, selectedStudentId);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Erro ao restaurar agendamento.');
+    }
+  };
+
+  const handleStudentConfirmCancel = async () => {
+    if (!studentCancellingItem || !selectedStudentId) return;
+    setStudentSavingCancel(true);
+    try {
+      await apiFetch('/api/org/scheduled-workout-overrides', {
+        method: 'POST',
+        body: JSON.stringify({
+          scheduled_workout_id: studentCancellingItem.workout.id,
+          student_id: selectedStudentId,
+          original_date: studentCancellingItem.dateStr,
+          status: 'cancelled',
+          notes: studentCancelNotes.trim() || null,
+        }),
+      });
+      setStudentCancellingItem(null);
+      setStudentCancelNotes('');
+      await loadStudentOverrides(studentWeekDays[0].dateStr, studentWeekDays[6].dateStr, selectedStudentId);
+    } catch (err: any) {
+      alert(err.message || 'Erro ao cancelar atendimento.');
+    } finally {
+      setStudentSavingCancel(false);
+    }
+  };
+
+  const handleStudentConfirmReschedule = async () => {
+    if (!studentReschedulingItem || !selectedStudentId) return;
+    if (!studentRescheduleDate) {
+      alert('Informe a nova data para o atendimento.');
+      return;
+    }
+    setStudentSavingReschedule(true);
+    try {
+      await apiFetch('/api/org/scheduled-workout-overrides', {
+        method: 'POST',
+        body: JSON.stringify({
+          scheduled_workout_id: studentReschedulingItem.workout.id,
+          student_id: selectedStudentId,
+          original_date: studentReschedulingItem.dateStr,
+          status: 'rescheduled',
+          rescheduled_date: studentRescheduleDate,
+          rescheduled_time: studentRescheduleTime.trim() || studentReschedulingItem.workout.scheduled_time || null,
+          notes: studentRescheduleNotes.trim() || null,
+        }),
+      });
+      setStudentReschedulingItem(null);
+      setStudentRescheduleDate('');
+      setStudentRescheduleTime('');
+      setStudentRescheduleNotes('');
+      await loadStudentOverrides(studentWeekDays[0].dateStr, studentWeekDays[6].dateStr, selectedStudentId);
+    } catch (err: any) {
+      alert(err.message || 'Erro ao reagendar atendimento.');
+    } finally {
+      setStudentSavingReschedule(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const t = search.trim().toLowerCase();
@@ -964,6 +1133,140 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
           </form>
         </Modal>
       )}
+
+      {/* Modal de Cancelamento de Atendimento da Semana do Aluno */}
+      {studentCancellingItem && (
+        <Modal
+          title={`Cancelar Atendimento — ${studentCancellingItem.workout.name}`}
+          onClose={() => setStudentCancellingItem(null)}
+          maxWidth="max-w-lg"
+        >
+          <div className="space-y-4">
+            <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-rose-800 dark:text-rose-300 space-y-1">
+                <p className="font-bold">
+                  Você está cancelando este atendimento exclusivamente para o dia {formatDatePtBr(studentCancellingItem.dateStr)}.
+                </p>
+                <p className="text-[11px] opacity-90">
+                  Treino: <strong>{studentCancellingItem.workout.name}</strong> • Horário: <strong>{studentCancellingItem.scheduledTime || 'Sem horário'}</strong>
+                </p>
+                <p className="text-[11px] opacity-80">
+                  A rotina semanal nas outras semanas continuará normalmente. Você pode restaurar este atendimento a qualquer momento.
+                </p>
+              </div>
+            </div>
+
+            <Field label="Motivo do cancelamento (opcional)">
+              <textarea
+                rows={3}
+                placeholder="Ex: Aluno viajou a trabalho, avisou com antecedência..."
+                value={studentCancelNotes}
+                onChange={(e) => setStudentCancelNotes(e.target.value)}
+                className={`${inputCls} resize-none`}
+              />
+            </Field>
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={studentSavingCancel}
+                onClick={() => setStudentCancellingItem(null)}
+                className={btnGhost}
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                disabled={studentSavingCancel}
+                onClick={handleStudentConfirmCancel}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 transition cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                <Ban className="w-3.5 h-3.5" />
+                {studentSavingCancel ? 'Cancelando...' : 'Confirmar Cancelamento'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal de Reagendamento de Atendimento da Semana do Aluno */}
+      {studentReschedulingItem && (
+        <Modal
+          title={`Reagendar Atendimento — ${studentReschedulingItem.workout.name}`}
+          onClose={() => setStudentReschedulingItem(null)}
+          maxWidth="max-w-lg"
+        >
+          <div className="space-y-4">
+            <div className="p-3.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/60 flex items-start gap-3">
+              <CalendarClock className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-indigo-800 dark:text-indigo-300 space-y-1">
+                <p className="font-bold">
+                  Reagendando atendimento de {formatDatePtBr(studentReschedulingItem.dateStr)}.
+                </p>
+                <p className="text-[11px] opacity-90">
+                  Treino: <strong>{studentReschedulingItem.workout.name}</strong>
+                </p>
+                <p className="text-[11px] opacity-80">
+                  Esta alteração de data e horário afetará exclusivamente este atendimento. As outras semanas continuam no dia fixo padrão.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Nova Data do Atendimento *">
+                <input
+                  type="date"
+                  required
+                  value={studentRescheduleDate}
+                  onChange={(e) => setStudentRescheduleDate(e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+
+              <Field label="Novo Horário (HH:mm)">
+                <input
+                  type="time"
+                  placeholder="08:00"
+                  value={studentRescheduleTime}
+                  onChange={(e) => setStudentRescheduleTime(e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+
+            <Field label="Motivo do reagendamento (opcional)">
+              <textarea
+                rows={2}
+                placeholder="Ex: Aluno pediu para antecipar por compromisso médico..."
+                value={studentRescheduleNotes}
+                onChange={(e) => setStudentRescheduleNotes(e.target.value)}
+                className={`${inputCls} resize-none`}
+              />
+            </Field>
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={studentSavingReschedule}
+                onClick={() => setStudentReschedulingItem(null)}
+                className={btnGhost}
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                disabled={studentSavingReschedule}
+                onClick={handleStudentConfirmReschedule}
+                className={btnPrimary}
+              >
+                <CalendarClock className="w-3.5 h-3.5" />
+                {studentSavingReschedule ? 'Reagendando...' : 'Confirmar Reagendamento'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </>
   );
 
@@ -1593,22 +1896,158 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
               </div>
             )}
 
+            {/* Navegador Semanal na Agenda do Aluno */}
+            {!isSequence && (
+              <div className={`${cardCls} p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-l-4 border-l-emerald-500 shadow-xs`}>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Semana de Atendimentos
+                    </div>
+                    <div className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>
+                        {studentWeekDays[0].dayFormatted} a {studentWeekDays[6].dayFormatted} de {studentWeekDays[6].date.getFullYear()}
+                      </span>
+                      {studentWeekOffset === 0 && (
+                        <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/90 dark:text-emerald-300">
+                          Esta Semana
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setStudentWeekOffset((p) => p - 1)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" /> Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudentWeekOffset(0)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      studentWeekOffset === 0
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    Hoje
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudentWeekOffset((p) => p + 1)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    Próxima <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* FORMATO 1: VISUALIZAÇÃO EM CALENDÁRIO SEMANAL (Dias Fixos) */}
             {!loadingStudentData && !isSequence && scheduledWorkouts.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3.5 items-start">
-                {DAYS_OF_WEEK.map((dayName, dayIndex) => {
-                  const dayWorkouts = scheduledWorkouts
-                    .filter((sw) => sw.day_of_week === dayIndex)
-                    .sort((a, b) =>
-                      (a.scheduled_time || '99:99').localeCompare(b.scheduled_time || '99:99')
-                    );
+                {studentWeekDays.map((day) => {
+                  const dayIndex = day.dayIndex;
                   const isWeekend = dayIndex === 0 || dayIndex === 6;
+
+                  // 1. Treinos normais cadastrados para este dia da semana
+                  const normalWorkouts = scheduledWorkouts.filter((sw) => {
+                    if (sw.day_of_week !== dayIndex) return false;
+                    if (sw.start_date && day.dateStr < sw.start_date) return false;
+                    if (sw.end_date && day.dateStr > sw.end_date) return false;
+                    return true;
+                  });
+
+                  // Cruzar com os overrides deste dia
+                  const dayItems: {
+                    id: string;
+                    workout: StudentScheduledWorkout;
+                    status: 'scheduled' | 'cancelled' | 'rescheduled_away' | 'rescheduled_here';
+                    scheduledTime?: string | null;
+                    dateStr: string;
+                    originalDate?: string;
+                    targetDate?: string | null;
+                    targetTime?: string | null;
+                    notes?: string | null;
+                  }[] = [];
+
+                  for (const wk of normalWorkouts) {
+                    const ov = studentOverrides.find(
+                      (o) => o.scheduled_workout_id === wk.id && o.original_date === day.dateStr
+                    );
+                    if (ov) {
+                      if (ov.status === 'cancelled') {
+                        dayItems.push({
+                          id: `${wk.id}_${day.dateStr}_cancelled`,
+                          workout: wk,
+                          status: 'cancelled',
+                          scheduledTime: wk.scheduled_time,
+                          dateStr: day.dateStr,
+                          originalDate: day.dateStr,
+                          notes: ov.notes,
+                        });
+                      } else if (ov.status === 'rescheduled') {
+                        dayItems.push({
+                          id: `${wk.id}_${day.dateStr}_rescheduled_away`,
+                          workout: wk,
+                          status: 'rescheduled_away',
+                          scheduledTime: wk.scheduled_time,
+                          dateStr: day.dateStr,
+                          originalDate: day.dateStr,
+                          targetDate: ov.rescheduled_date,
+                          targetTime: ov.rescheduled_time,
+                          notes: ov.notes,
+                        });
+                      }
+                    } else {
+                      dayItems.push({
+                        id: `${wk.id}_${day.dateStr}`,
+                        workout: wk,
+                        status: 'scheduled',
+                        scheduledTime: wk.scheduled_time,
+                        dateStr: day.dateStr,
+                        originalDate: day.dateStr,
+                      });
+                    }
+                  }
+
+                  // 2. Treinos reagendados PARA este dia
+                  const rescheduledHere = studentOverrides.filter(
+                    (o) => o.status === 'rescheduled' && o.rescheduled_date === day.dateStr
+                  );
+                  for (const ov of rescheduledHere) {
+                    const wk = scheduledWorkouts.find((w) => w.id === ov.scheduled_workout_id);
+                    if (wk) {
+                      dayItems.push({
+                        id: `${wk.id}_${day.dateStr}_rescheduled_here`,
+                        workout: wk,
+                        status: 'rescheduled_here',
+                        scheduledTime: ov.rescheduled_time || wk.scheduled_time,
+                        dateStr: day.dateStr,
+                        originalDate: ov.original_date,
+                        notes: ov.notes,
+                      });
+                    }
+                  }
+
+                  dayItems.sort((a, b) =>
+                    (a.scheduledTime || '99:99').localeCompare(b.scheduledTime || '99:99')
+                  );
 
                   return (
                     <div
                       key={dayIndex}
                       className={`flex flex-col rounded-2xl border transition min-h-[460px] ${
-                        dayWorkouts.length > 0
+                        day.isToday
+                          ? 'bg-white dark:bg-slate-900 border-emerald-500/80 dark:border-emerald-500/80 ring-2 ring-emerald-500/20 shadow-md'
+                          : dayItems.length > 0
                           ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm'
                           : 'bg-slate-50/70 dark:bg-slate-900/40 border-dashed border-slate-200 dark:border-slate-800'
                       }`}
@@ -1616,28 +2055,42 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                       {/* Cabeçalho do Dia */}
                       <div
                         className={`p-3 border-b rounded-t-2xl flex items-center justify-between gap-1.5 ${
-                          isWeekend
+                          day.isToday
+                            ? 'bg-emerald-500 text-white border-emerald-600'
+                            : isWeekend
                             ? 'bg-slate-100/60 dark:bg-slate-800/60 border-slate-200 dark:border-slate-800'
                             : 'bg-emerald-50/60 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/40'
                         }`}
                       >
                         <div className="min-w-0">
-                          <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                            {dayName}
+                          <div className={`text-xs font-bold truncate flex items-center gap-1.5 ${day.isToday ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
+                            <span>{day.dayName}</span>
+                            <span className={`text-[10px] font-medium ${day.isToday ? 'text-emerald-100' : 'text-slate-400'}`}>
+                              ({day.dayFormatted})
+                            </span>
+                            {day.isToday && (
+                              <span className="text-[9px] font-black uppercase px-1 rounded bg-white text-emerald-700">
+                                Hoje
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[10px] text-slate-400 font-medium">
-                            {dayWorkouts.length === 0
+                          <div className={`text-[10px] font-medium ${day.isToday ? 'text-emerald-100' : 'text-slate-400'}`}>
+                            {dayItems.length === 0
                               ? 'Livre / Descanso'
-                              : `${dayWorkouts.length} treino(s)`}
+                              : `${dayItems.length} treino(s)`}
                           </div>
                         </div>
 
                         <button
                           type="button"
                           onClick={() => startNewScheduledWorkout(dayIndex)}
-                          className="w-6 h-6 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:border-emerald-500 flex items-center justify-center transition cursor-pointer shrink-0"
-                          title={`Adicionar treino na ${dayName}`}
-                          aria-label={`Adicionar treino na ${dayName}`}
+                          className={`w-6 h-6 rounded-lg border flex items-center justify-center transition cursor-pointer shrink-0 ${
+                            day.isToday
+                              ? 'bg-white/20 border-white/40 text-white hover:bg-white hover:text-emerald-700'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:border-emerald-500'
+                          }`}
+                          title={`Adicionar treino na ${day.dayName}`}
+                          aria-label={`Adicionar treino na ${day.dayName}`}
                         >
                           <Plus className="w-3.5 h-3.5" />
                         </button>
@@ -1645,7 +2098,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
 
                       {/* Lista de Treinos do Dia */}
                       <div className="p-2.5 flex-1 flex flex-col space-y-2.5">
-                        {dayWorkouts.length === 0 ? (
+                        {dayItems.length === 0 ? (
                           <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-slate-400">
                             <span className="text-[11px] italic">Sem treinos</span>
                             <button
@@ -1657,100 +2110,200 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                             </button>
                           </div>
                         ) : (
-                          dayWorkouts.map((wk) => (
-                            <div
-                              key={wk.id}
-                              className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 hover:border-emerald-500/50 transition group flex flex-col justify-between gap-2 shadow-xs"
-                            >
-                              <div>
-                                <div className="flex items-start justify-between gap-1">
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-2">
-                                        {wk.name}
-                                      </h4>
-                                      {wk.scheduled_time && (
-                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100/90 text-emerald-800 dark:bg-emerald-950/90 dark:text-emerald-300 shrink-0">
-                                          <Clock className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
-                                          {wk.scheduled_time}
-                                        </span>
-                                      )}
+                          dayItems.map((item) => {
+                            const isCancelled = item.status === 'cancelled';
+                            const isRescheduledAway = item.status === 'rescheduled_away';
+                            const isRescheduledHere = item.status === 'rescheduled_here';
+                            const wk = item.workout;
+
+                            return (
+                              <div
+                                key={item.id}
+                                className={`p-3 rounded-xl border transition group flex flex-col justify-between gap-2 shadow-xs ${
+                                  isCancelled
+                                    ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50 opacity-80'
+                                    : isRescheduledAway
+                                    ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50 opacity-80'
+                                    : isRescheduledHere
+                                    ? 'bg-purple-50/50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800'
+                                    : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200/80 dark:border-slate-700/80 hover:border-emerald-500/50'
+                                }`}
+                              >
+                                <div>
+                                  {/* Cabeçalho do Card */}
+                                  <div className="flex items-start justify-between gap-1">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <h4 className={`font-bold text-xs line-clamp-2 ${isCancelled ? 'line-through text-slate-400' : 'text-slate-900 dark:text-white'}`}>
+                                          {wk.name}
+                                        </h4>
+                                        {isCancelled ? (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 shrink-0">
+                                            <Ban className="w-2.5 h-2.5" /> Cancelado no dia
+                                          </span>
+                                        ) : isRescheduledAway ? (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 shrink-0">
+                                            <ArrowRightLeft className="w-2.5 h-2.5" /> Reagendado
+                                          </span>
+                                        ) : isRescheduledHere ? (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 shrink-0">
+                                            <Clock className="w-2.5 h-2.5" /> {item.scheduledTime || 'Sem horário'} • Reagendado
+                                          </span>
+                                        ) : item.scheduledTime ? (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100/90 text-emerald-800 dark:bg-emerald-950/90 dark:text-emerald-300 shrink-0">
+                                            <Clock className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                            {item.scheduledTime}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </div>
+
+                                    {/* Ações de Edição Base do Treino */}
+                                    <div className="flex items-center gap-0.5 opacity-90 group-hover:opacity-100 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditScheduledWorkout(wk)}
+                                        className="p-1 hover:text-emerald-600 text-slate-400 rounded cursor-pointer"
+                                        title="Editar cadastro deste treino"
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDuplicateScheduledWorkout(wk)}
+                                        className="p-1 hover:text-emerald-600 text-slate-400 rounded cursor-pointer"
+                                        title="Duplicar treino"
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteScheduledWorkout(wk)}
+                                        className="p-1 hover:text-rose-600 text-slate-400 rounded cursor-pointer"
+                                        title="Excluir treino da agenda"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-0.5 opacity-90 group-hover:opacity-100 shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={() => startEditScheduledWorkout(wk)}
-                                      className="p-1 hover:text-emerald-600 text-slate-400 rounded cursor-pointer"
-                                      title="Editar treino agendado"
-                                    >
-                                      <Pencil className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDuplicateScheduledWorkout(wk)}
-                                      className="p-1 hover:text-emerald-600 text-slate-400 rounded cursor-pointer"
-                                      title="Duplicar treino"
-                                    >
-                                      <Copy className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteScheduledWorkout(wk)}
-                                      className="p-1 hover:text-rose-600 text-slate-400 rounded cursor-pointer"
-                                      title="Excluir da agenda"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                </div>
 
-                                {(wk.start_date || wk.end_date) && (
-                                  <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                                    <Clock className="w-2.5 h-2.5 shrink-0" />
-                                    <span>
-                                      {wk.start_date ? formatDatePtBr(wk.start_date) : 'Início'}
-                                      {' até '}
-                                      {wk.end_date ? formatDatePtBr(wk.end_date) : 'Indeterminado'}
-                                    </span>
-                                  </div>
-                                )}
+                                  {/* Informações de Reagendamento / Cancelamento */}
+                                  {isRescheduledAway && (
+                                    <div className="mt-1 text-[10px] text-amber-700 dark:text-amber-300 bg-amber-100/60 dark:bg-amber-950/40 p-1.5 rounded-lg">
+                                      Transferido para: <strong>{formatDatePtBr(item.targetDate)}</strong> {item.targetTime ? `às ${item.targetTime}` : ''}
+                                      {item.notes && <div className="italic mt-0.5">"{item.notes}"</div>}
+                                    </div>
+                                  )}
 
-                                <div className="mt-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
-                                  <Dumbbell className="w-3 h-3" />
-                                  {wk.items.length} exercício(s)
-                                </div>
+                                  {isRescheduledHere && (
+                                    <div className="mt-1 text-[10px] text-purple-700 dark:text-purple-300 bg-purple-100/60 dark:bg-purple-950/40 p-1.5 rounded-lg">
+                                      Originalmente de: <strong>{formatDatePtBr(item.originalDate)}</strong>
+                                      {item.notes && <div className="italic mt-0.5">"{item.notes}"</div>}
+                                    </div>
+                                  )}
 
-                                {wk.notes && (
-                                  <div className="text-[10px] text-slate-400 italic line-clamp-1 mt-0.5">
-                                    {wk.notes}
-                                  </div>
-                                )}
-                              </div>
+                                  {isCancelled && item.notes && (
+                                    <div className="mt-1 text-[10px] text-rose-700 dark:text-rose-300 italic">
+                                      Motivo: "{item.notes}"
+                                    </div>
+                                  )}
 
-                              {/* Exercícios resumo */}
-                              {wk.items.length > 0 && (
-                                <div className="pt-2 border-t border-slate-200/50 dark:border-slate-700/50 space-y-1">
-                                  {wk.items.slice(0, 3).map((it, i) => (
-                                    <div
-                                      key={it.id || i}
-                                      className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between gap-1"
-                                    >
-                                      <span className="truncate">{it.exercise_name}</span>
-                                      <span className="shrink-0 text-[9px] font-bold text-slate-400">
-                                        {it.sets}x{it.reps}
+                                  {(wk.start_date || wk.end_date) && !isCancelled && !isRescheduledAway && (
+                                    <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                                      <Clock className="w-2.5 h-2.5 shrink-0" />
+                                      <span>
+                                        {wk.start_date ? formatDatePtBr(wk.start_date) : 'Início'}
+                                        {' até '}
+                                        {wk.end_date ? formatDatePtBr(wk.end_date) : 'Indeterminado'}
                                       </span>
                                     </div>
-                                  ))}
-                                  {wk.items.length > 3 && (
-                                    <div className="text-[9px] text-slate-400 italic">
-                                      +{wk.items.length - 3} mais exercícios...
+                                  )}
+
+                                  <div className="mt-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                                    <Dumbbell className="w-3 h-3" />
+                                    {wk.items.length} exercício(s)
+                                  </div>
+
+                                  {wk.notes && (
+                                    <div className="text-[10px] text-slate-400 italic line-clamp-1 mt-0.5">
+                                      {wk.notes}
                                     </div>
                                   )}
                                 </div>
-                              )}
-                            </div>
-                          ))
+
+                                {/* Exercícios resumo */}
+                                {!isCancelled && !isRescheduledAway && wk.items.length > 0 && (
+                                  <div className="pt-2 border-t border-slate-200/50 dark:border-slate-700/50 space-y-1">
+                                    {wk.items.slice(0, 3).map((it, i) => (
+                                      <div
+                                        key={it.id || i}
+                                        className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between gap-1"
+                                      >
+                                        <span className="truncate">{it.exercise_name}</span>
+                                        <span className="shrink-0 text-[9px] font-bold text-slate-400">
+                                          {it.sets}x{it.reps}
+                                        </span>
+                                      </div>
+                                    ))}
+                                    {wk.items.length > 3 && (
+                                      <div className="text-[9px] text-slate-400 italic">
+                                        +{wk.items.length - 3} mais exercícios...
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Ações de Reagendar / Cancelar / Restaurar atendimento da data */}
+                                <div className="pt-2 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between gap-1 text-[10px]">
+                                  {isCancelled || isRescheduledAway || isRescheduledHere ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStudentRestore(wk.id, item.originalDate || item.dateStr)}
+                                      className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
+                                      title="Restaurar atendimento para o padrão semanal original"
+                                    >
+                                      <RotateCcw className="w-3 h-3" /> Restaurar Atendimento
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setStudentReschedulingItem({
+                                            workout: wk,
+                                            dateStr: day.dateStr,
+                                            scheduledTime: item.scheduledTime,
+                                          });
+                                          setStudentRescheduleDate(day.dateStr);
+                                          setStudentRescheduleTime(item.scheduledTime || '');
+                                          setStudentRescheduleNotes('');
+                                        }}
+                                        className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
+                                        title="Reagendar atendimento desta data"
+                                      >
+                                        <CalendarClock className="w-3 h-3" /> Reagendar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setStudentCancellingItem({
+                                            workout: wk,
+                                            dateStr: day.dateStr,
+                                            scheduledTime: item.scheduledTime,
+                                          });
+                                          setStudentCancelNotes('');
+                                        }}
+                                        className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold hover:underline cursor-pointer"
+                                        title="Cancelar atendimento apenas deste dia"
+                                      >
+                                        <Ban className="w-3 h-3" /> Cancelar
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     </div>

@@ -179,6 +179,22 @@ export interface PersonalScheduledWorkoutItem extends StudentScheduledWorkout {
   student_schedule_type?: ScheduleType;
 }
 
+export interface ScheduledWorkoutOverride {
+  id: string;
+  organization_id: string;
+  scheduled_workout_id: string;
+  student_id: string;
+  original_date: string; // 'YYYY-MM-DD'
+  status: 'cancelled' | 'rescheduled' | 'completed';
+  rescheduled_date?: string | null; // 'YYYY-MM-DD'
+  rescheduled_time?: string | null; // 'HH:mm'
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  student_name?: string;
+  scheduled_workout_name?: string;
+}
+
 export const DAYS_OF_WEEK = [
   'Domingo',
   'Segunda-feira',

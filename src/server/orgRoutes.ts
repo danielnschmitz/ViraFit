@@ -1699,6 +1699,147 @@ orgRouter.get('/personal-schedule', async (req: AuthRequest, res) => {
   }
 });
 
+orgRouter.get('/scheduled-workout-overrides', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const { startDate, endDate, studentId } = req.query as {
+      startDate?: string;
+      endDate?: string;
+      studentId?: string;
+    };
+
+    const conditions: string[] = ['swo.organization_id = $1'];
+    const params: any[] = [orgId];
+
+    if (startDate && endDate) {
+      params.push(startDate, endDate);
+      const startIdx = params.length - 1;
+      const endIdx = params.length;
+      conditions.push(`(
+        (swo.original_date >= $${startIdx} AND swo.original_date <= $${endIdx})
+        OR (swo.rescheduled_date IS NOT NULL AND swo.rescheduled_date >= $${startIdx} AND swo.rescheduled_date <= $${endIdx})
+      )`);
+    }
+
+    if (studentId) {
+      params.push(studentId);
+      conditions.push(`swo.student_id = $${params.length}`);
+    }
+
+    const query = `
+      SELECT swo.*,
+             s.name AS student_name,
+             ssw.name AS scheduled_workout_name
+      FROM scheduled_workout_overrides swo
+      JOIN students s ON swo.student_id = s.id AND swo.organization_id = s.organization_id
+      JOIN student_scheduled_workouts ssw ON swo.scheduled_workout_id = ssw.id AND swo.organization_id = ssw.organization_id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY swo.original_date ASC, swo.created_at ASC
+    `;
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[ScheduledOverrides] Erro ao buscar exceções da agenda:', err);
+    res.status(500).json({ error: 'Erro ao carregar exceções da agenda.' });
+  }
+});
+
+orgRouter.post('/scheduled-workout-overrides', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const {
+      scheduled_workout_id,
+      student_id,
+      original_date,
+      status,
+      rescheduled_date,
+      rescheduled_time,
+      notes,
+    } = req.body;
+
+    if (!scheduled_workout_id || !student_id || !original_date || !status) {
+      return res.status(400).json({
+        error: 'scheduled_workout_id, student_id, original_date e status são obrigatórios.',
+      });
+    }
+
+    if (!['cancelled', 'rescheduled', 'completed'].includes(status)) {
+      return res.status(400).json({ error: 'Status inválido. Use "cancelled", "rescheduled" ou "completed".' });
+    }
+
+    if (status === 'rescheduled' && !rescheduled_date) {
+      return res.status(400).json({ error: 'Data de reagendamento é obrigatória quando o status for "rescheduled".' });
+    }
+
+    const id = crypto.randomUUID();
+    const result = await pool.query(
+      `INSERT INTO scheduled_workout_overrides (
+         id, organization_id, scheduled_workout_id, student_id, original_date,
+         status, rescheduled_date, rescheduled_time, notes, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       ON CONFLICT (scheduled_workout_id, original_date)
+       DO UPDATE SET
+         status = EXCLUDED.status,
+         rescheduled_date = EXCLUDED.rescheduled_date,
+         rescheduled_time = EXCLUDED.rescheduled_time,
+         notes = EXCLUDED.notes,
+         updated_at = NOW()
+       RETURNING *`,
+      [
+        id,
+        orgId,
+        scheduled_workout_id,
+        student_id,
+        original_date,
+        status,
+        rescheduled_date || null,
+        rescheduled_time || null,
+        notes ? String(notes).trim() : null,
+      ]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[ScheduledOverrides] Erro ao salvar exceção da agenda:', err);
+    res.status(500).json({ error: 'Erro ao salvar alteração da agenda.' });
+  }
+});
+
+orgRouter.delete('/scheduled-workout-overrides', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const { id, scheduled_workout_id, original_date } = (req.query.id ? req.query : req.body) as {
+      id?: string;
+      scheduled_workout_id?: string;
+      original_date?: string;
+    };
+
+    if (id) {
+      await pool.query(
+        `DELETE FROM scheduled_workout_overrides WHERE id = $1 AND organization_id = $2`,
+        [id, orgId]
+      );
+    } else if (scheduled_workout_id && original_date) {
+      await pool.query(
+        `DELETE FROM scheduled_workout_overrides 
+         WHERE scheduled_workout_id = $1 AND original_date = $2 AND organization_id = $3`,
+        [scheduled_workout_id, original_date, orgId]
+      );
+    } else {
+      return res.status(400).json({
+        error: 'Informe id ou (scheduled_workout_id e original_date) para restaurar o agendamento.',
+      });
+    }
+
+    res.json({ success: true, message: 'Agendamento restaurado para o padrão original.' });
+  } catch (err) {
+    console.error('[ScheduledOverrides] Erro ao deletar exceção da agenda:', err);
+    res.status(500).json({ error: 'Erro ao restaurar agendamento original.' });
+  }
+});
+
 async function fetchStudentScheduledWorkoutsWithItems(
   orgId: string,
   studentId: string,

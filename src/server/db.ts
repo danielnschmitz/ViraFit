@@ -789,12 +789,15 @@ export async function initDatabase(): Promise<void> {
         notes TEXT,
         schedule_type VARCHAR(30) NOT NULL DEFAULT 'fixed_days', -- 'fixed_days', 'sequence'
         day_of_week INTEGER, -- 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
+        scheduled_time VARCHAR(10), -- 'HH:mm', ex: '07:30', '18:00'
         sequence_order INTEGER DEFAULT 1,
         start_date VARCHAR(20),
         end_date VARCHAR(20),
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      ALTER TABLE student_scheduled_workouts ADD COLUMN IF NOT EXISTS scheduled_time VARCHAR(10);
 
       CREATE TABLE IF NOT EXISTS student_scheduled_workout_items (
         id VARCHAR(36) PRIMARY KEY,

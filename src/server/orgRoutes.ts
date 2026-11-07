@@ -1651,7 +1651,7 @@ async function fetchStudentScheduledWorkoutsWithItems(
     `SELECT ssw.*
      FROM student_scheduled_workouts ssw
      WHERE ${whereClause}
-     ORDER BY ssw.schedule_type ASC, ssw.day_of_week ASC NULLS LAST, ssw.sequence_order ASC NULLS LAST, ssw.created_at ASC`,
+     ORDER BY ssw.schedule_type ASC, ssw.day_of_week ASC NULLS LAST, ssw.scheduled_time ASC NULLS LAST, ssw.sequence_order ASC NULLS LAST, ssw.created_at ASC`,
     params
   );
 
@@ -1713,6 +1713,7 @@ orgRouter.post('/students/:studentId/scheduled-workouts', async (req: AuthReques
       schedule_type,
       days_of_week,
       day_of_week,
+      scheduled_time,
       sequence_order,
       start_date,
       end_date,
@@ -1726,6 +1727,10 @@ orgRouter.post('/students/:studentId/scheduled-workouts', async (req: AuthReques
     const cleanScheduleType = schedule_type === 'sequence' ? 'sequence' : 'fixed_days';
     const cleanStartDate = start_date && String(start_date).trim() ? String(start_date).trim() : null;
     const cleanEndDate = end_date && String(end_date).trim() ? String(end_date).trim() : null;
+    const cleanScheduledTime =
+      cleanScheduleType === 'fixed_days' && scheduled_time && String(scheduled_time).trim()
+        ? String(scheduled_time).trim().slice(0, 5)
+        : null;
 
     await client.query('BEGIN');
 
@@ -1774,8 +1779,8 @@ orgRouter.post('/students/:studentId/scheduled-workouts', async (req: AuthReques
 
       await client.query(
         `INSERT INTO student_scheduled_workouts (
-          id, organization_id, student_id, name, notes, schedule_type, day_of_week, sequence_order, start_date, end_date
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          id, organization_id, student_id, name, notes, schedule_type, day_of_week, sequence_order, start_date, end_date, scheduled_time
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           scheduledWorkoutId,
           orgId,
@@ -1787,6 +1792,7 @@ orgRouter.post('/students/:studentId/scheduled-workouts', async (req: AuthReques
           cleanScheduleType === 'sequence' ? targetSeq : null,
           cleanStartDate,
           cleanEndDate,
+          cleanScheduledTime,
         ]
       );
 
@@ -1855,6 +1861,7 @@ orgRouter.put('/students/:studentId/scheduled-workouts/:id', async (req: AuthReq
       notes,
       schedule_type,
       day_of_week,
+      scheduled_time,
       sequence_order,
       start_date,
       end_date,
@@ -1878,6 +1885,10 @@ orgRouter.put('/students/:studentId/scheduled-workouts/:id', async (req: AuthReq
       cleanScheduleType === 'fixed_days' && day_of_week !== undefined && day_of_week !== null
         ? Math.min(6, Math.max(0, parseInt(String(day_of_week), 10)))
         : null;
+    const cleanScheduledTime =
+      cleanScheduleType === 'fixed_days' && scheduled_time && String(scheduled_time).trim()
+        ? String(scheduled_time).trim().slice(0, 5)
+        : null;
     const cleanSeq =
       cleanScheduleType === 'sequence' && sequence_order !== undefined && sequence_order !== null
         ? Math.max(1, parseInt(String(sequence_order), 10))
@@ -1890,8 +1901,8 @@ orgRouter.put('/students/:studentId/scheduled-workouts/:id', async (req: AuthReq
     await client.query(
       `UPDATE student_scheduled_workouts
        SET name = $1, notes = $2, schedule_type = $3, day_of_week = $4, sequence_order = $5,
-           start_date = $6, end_date = $7, updated_at = NOW()
-       WHERE id = $8 AND student_id = $9 AND organization_id = $10`,
+           start_date = $6, end_date = $7, scheduled_time = $8, updated_at = NOW()
+       WHERE id = $9 AND student_id = $10 AND organization_id = $11`,
       [
         String(name).trim(),
         notes ? String(notes).trim() : null,
@@ -1900,6 +1911,7 @@ orgRouter.put('/students/:studentId/scheduled-workouts/:id', async (req: AuthReq
         cleanSeq,
         cleanStartDate,
         cleanEndDate,
+        cleanScheduledTime,
         scheduledWorkoutId,
         studentId,
         orgId,

@@ -161,6 +161,7 @@ export interface StudentScheduledWorkout {
   notes?: string | null;
   schedule_type: ScheduleType;
   day_of_week?: number | null; // 0 a 6
+  scheduled_time?: string | null; // HH:mm (ex: "07:30")
   sequence_order?: number | null; // 1, 2, 3...
   start_date?: string | null;
   end_date?: string | null;

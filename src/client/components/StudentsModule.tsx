@@ -126,6 +126,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
   const [scheduledName, setScheduledName] = useState('');
   const [scheduledNotes, setScheduledNotes] = useState('');
   const [scheduledDaysOfWeek, setScheduledDaysOfWeek] = useState<number[]>([1]); // Segunda por padrão
+  const [scheduledTime, setScheduledTime] = useState(''); // HH:mm (horário de execução)
   const [scheduledSequenceOrder, setScheduledSequenceOrder] = useState<number>(1);
   const [scheduledStartDate, setScheduledStartDate] = useState('');
   const [scheduledEndDate, setScheduledEndDate] = useState('');
@@ -426,6 +427,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
     setEditingScheduled('new');
     setScheduledName('');
     setScheduledNotes('');
+    setScheduledTime('');
     setScheduledStartDate('');
     setScheduledEndDate('');
     setScheduledItems([]);
@@ -450,6 +452,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
     setEditingScheduled(swk);
     setScheduledName(swk.name);
     setScheduledNotes(swk.notes || '');
+    setScheduledTime(swk.scheduled_time || '');
     setScheduledStartDate(swk.start_date || '');
     setScheduledEndDate(swk.end_date || '');
     setScheduledItems(swk.items.map((i) => ({ ...i })));
@@ -539,6 +542,10 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
         schedule_type: currentScheduleType,
         start_date: scheduledStartDate.trim() || null,
         end_date: scheduledEndDate.trim() || null,
+        scheduled_time:
+          currentScheduleType === 'fixed_days' && scheduledTime.trim()
+            ? scheduledTime.trim()
+            : null,
         items: scheduledItems,
       };
 
@@ -600,6 +607,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
         schedule_type: swk.schedule_type,
         start_date: swk.start_date || null,
         end_date: swk.end_date || null,
+        scheduled_time: swk.scheduled_time || null,
         items: swk.items,
       };
 
@@ -1133,7 +1141,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <Field label="Nome do Treino *" className="md:col-span-6">
+            <Field label="Nome do Treino *" className={!isSequence ? "md:col-span-4" : "md:col-span-6"}>
               <input
                 type="text"
                 required
@@ -1143,6 +1151,17 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
                 className={inputCls}
               />
             </Field>
+
+            {!isSequence && (
+              <Field label="Horário de Execução (Opcional)" className="md:col-span-2">
+                <input
+                  type="time"
+                  value={scheduledTime}
+                  onChange={(e) => setScheduledTime(e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+            )}
 
             <Field label="Data de Início (Opcional)" className="md:col-span-3">
               <input
@@ -1571,9 +1590,11 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
             {!loadingStudentData && !isSequence && scheduledWorkouts.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3">
                 {DAYS_OF_WEEK.map((dayName, dayIndex) => {
-                  const dayWorkouts = scheduledWorkouts.filter(
-                    (sw) => sw.day_of_week === dayIndex
-                  );
+                  const dayWorkouts = scheduledWorkouts
+                    .filter((sw) => sw.day_of_week === dayIndex)
+                    .sort((a, b) =>
+                      (a.scheduled_time || '99:99').localeCompare(b.scheduled_time || '99:99')
+                    );
                   const isWeekend = dayIndex === 0 || dayIndex === 6;
 
                   return (
@@ -1636,10 +1657,20 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org }) => {
                             >
                               <div>
                                 <div className="flex items-start justify-between gap-1">
-                                  <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-2">
-                                    {wk.name}
-                                  </h4>
-                                  <div className="flex items-center gap-0.5 opacity-90 group-hover:opacity-100">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-2">
+                                        {wk.name}
+                                      </h4>
+                                      {wk.scheduled_time && (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100/90 text-emerald-800 dark:bg-emerald-950/90 dark:text-emerald-300 shrink-0">
+                                          <Clock className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                          {wk.scheduled_time}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-0.5 opacity-90 group-hover:opacity-100 shrink-0">
                                     <button
                                       type="button"
                                       onClick={() => startEditScheduledWorkout(wk)}

@@ -23,6 +23,7 @@ import {
   MapPin,
   MessageCircle,
   Phone,
+  Play,
   RotateCcw,
   Search,
   Sparkles,
@@ -42,6 +43,7 @@ import {
   apiFetch,
   formatSchemeSummary,
 } from '../api';
+import { AttendanceSessionRunner } from './AttendanceSessionRunner';
 import {
   ErrorBox,
   Field,
@@ -61,7 +63,7 @@ interface PersonalScheduleModuleProps {
 
 export interface DayAttendanceItem {
   id: string; // único para a listagem
-  status: 'scheduled' | 'cancelled' | 'rescheduled_away' | 'rescheduled_here' | 'rescheduled_cancelled';
+  status: 'scheduled' | 'cancelled' | 'rescheduled_away' | 'rescheduled_here' | 'rescheduled_cancelled' | 'completed';
   workout: PersonalScheduledWorkoutItem;
   dayIndex: number;
   dateStr: string; // 'YYYY-MM-DD'
@@ -142,6 +144,9 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
   const [rescheduleTime, setRescheduleTime] = useState('');
   const [rescheduleNotes, setRescheduleNotes] = useState('');
   const [savingReschedule, setSavingReschedule] = useState(false);
+
+  // Estado para Execução do Atendimento (Jornada Step-by-Step)
+  const [runningSessionItem, setRunningSessionItem] = useState<DayAttendanceItem | null>(null);
 
   // Estrutura das datas da semana selecionada
   const weekDays = useMemo(() => {
@@ -301,6 +306,18 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                 overrideNotes: override.notes,
                 overrideId: override.id,
               });
+            } else if (override.status === 'completed') {
+              items.push({
+                id: `${wk.id}_${day.dateStr}_completed`,
+                status: 'completed',
+                workout: wk,
+                dayIndex: day.dayIndex,
+                dateStr: day.dateStr,
+                scheduledTime: wk.scheduled_time,
+                originalDate: day.dateStr,
+                overrideNotes: override.notes,
+                overrideId: override.id,
+              });
             }
           } else {
             items.push({
@@ -318,7 +335,9 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
 
       // 2. Treinos reagendados PARA este dia (vindos de outra data)
       const rescheduledHere = overrides.filter(
-        (o) => (o.status === 'rescheduled' || o.status === 'cancelled') && o.rescheduled_date === day.dateStr
+        (o) =>
+          (o.status === 'rescheduled' || o.status === 'cancelled' || o.status === 'completed') &&
+          o.rescheduled_date === day.dateStr
       );
 
       for (const ov of rescheduledHere) {
@@ -336,7 +355,12 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
             continue;
           }
 
-          const status = ov.status === 'cancelled' ? 'rescheduled_cancelled' : 'rescheduled_here';
+          const status: DayAttendanceItem['status'] =
+            ov.status === 'completed'
+              ? 'completed'
+              : ov.status === 'cancelled'
+              ? 'rescheduled_cancelled'
+              : 'rescheduled_here';
 
           items.push({
             id: `${wk.id}_${day.dateStr}_${status}`,
@@ -866,6 +890,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                       const isRescheduledAway = item.status === 'rescheduled_away';
                       const isRescheduledHere = item.status === 'rescheduled_here';
                       const isRescheduledCancelled = item.status === 'rescheduled_cancelled';
+                      const isCompleted = item.status === 'completed';
                       const isAnyCancelled = isCancelled || isRescheduledCancelled;
 
                       return (
@@ -873,7 +898,9 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                           key={item.id}
                           onClick={() => setInspectingItem(item)}
                           className={`p-3 rounded-xl border transition group flex flex-col justify-between gap-2.5 cursor-pointer ${
-                            isAnyCancelled
+                            isCompleted
+                              ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/80 shadow-xs'
+                              : isAnyCancelled
                               ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50 opacity-80'
                               : isRescheduledAway
                               ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50 opacity-80'
@@ -885,7 +912,12 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                           <div className="space-y-1.5">
                             {/* Badges de Status e Horário */}
                             <div className="flex items-center justify-between gap-1 flex-wrap">
-                              {isRescheduledCancelled ? (
+                              {isCompleted ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/90 dark:text-emerald-300">
+                                  <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                                  Concluído
+                                </span>
+                              ) : isRescheduledCancelled ? (
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/90 dark:text-rose-300">
                                   <Ban className="w-2.5 h-2.5" />
                                   Cancelado (Reagendado)
@@ -995,6 +1027,44 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                               </div>
                             )}
                           </div>
+
+                          {/* BOTÃO DE INICIAR ATENDIMENTO / STATUS CONCLUÍDO */}
+                          {(item.status === 'scheduled' || item.status === 'rescheduled_here') && (
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRunningSessionItem(item);
+                                }}
+                                className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                                Iniciar Atendimento
+                              </button>
+                            </div>
+                          )}
+
+                          {isCompleted && (
+                            <div className="pt-1">
+                              <div className="w-full py-1.5 px-2.5 rounded-xl bg-emerald-100/70 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-[11px] font-bold flex items-center justify-between">
+                                <span className="flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                  Atendido
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setRunningSessionItem(item);
+                                  }}
+                                  className="text-[10px] text-emerald-700 dark:text-emerald-300 hover:underline font-semibold cursor-pointer"
+                                >
+                                  Refazer
+                                </button>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Botões de Ação Direta no Card */}
                           <div className="pt-2 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between gap-1.5 text-[10px] flex-wrap">
@@ -1148,6 +1218,7 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                     const isRescheduledAway = item.status === 'rescheduled_away';
                     const isRescheduledHere = item.status === 'rescheduled_here';
                     const isRescheduledCancelled = item.status === 'rescheduled_cancelled';
+                    const isCompleted = item.status === 'completed';
                     const isAnyCancelled = isCancelled || isRescheduledCancelled;
 
                     return (
@@ -1155,7 +1226,9 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                         key={item.id}
                         onClick={() => setInspectingItem(item)}
                         className={`py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl px-2.5 transition cursor-pointer ${
-                          isAnyCancelled
+                          isCompleted
+                            ? 'bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-300 dark:border-emerald-800'
+                            : isAnyCancelled
                             ? 'bg-rose-50/40 dark:bg-rose-950/20 opacity-80'
                             : isRescheduledAway
                             ? 'bg-amber-50/40 dark:bg-amber-950/20 opacity-80'
@@ -1166,7 +1239,11 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                       >
                         <div className="flex items-start sm:items-center gap-3">
                           <div className="w-24 shrink-0">
-                            {isRescheduledCancelled ? (
+                            {isCompleted ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Atendido
+                              </span>
+                            ) : isRescheduledCancelled ? (
                               <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
                                 <Ban className="w-3 h-3" /> Cancelado
                               </span>
@@ -1245,6 +1322,33 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
                         </div>
 
                         <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                          {/* Botão de Iniciar Atendimento na Timeline */}
+                          {(item.status === 'scheduled' || item.status === 'rescheduled_here') && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRunningSessionItem(item);
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs cursor-pointer"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" /> Iniciar Atendimento
+                            </button>
+                          )}
+
+                          {isCompleted && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRunningSessionItem(item);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 font-bold text-xs border border-emerald-300 dark:border-emerald-800 cursor-pointer"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" /> Refazer Atendimento
+                            </button>
+                          )}
+
                           {isRescheduledHere ? (
                             <>
                               <button
@@ -1582,7 +1686,45 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
               )}
             </div>
 
-            {/* Ações Específicas para o Atendimento */}
+            {inspectingItem.status === 'completed' && (
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-3 text-xs text-emerald-800 dark:text-emerald-300">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <div>
+                    <span className="font-bold">Atendimento realizado com sucesso nesta data ({formatDatePtBr(inspectingItem.dateStr)}).</span>
+                    <p className="mt-0.5 text-[11px] opacity-90">
+                      Os registros de execução e intercorrências estão gravados na ficha do aluno.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRunningSessionItem(inspectingItem);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition cursor-pointer shrink-0"
+                >
+                  <RotateCcw className="w-3 h-3 inline mr-1" /> Refazer Atendimento
+                </button>
+              </div>
+            )}
+
+            {/* BOTÃO PRINCIPAL DE INICIAR ATENDIMENTO (QUANDO PENDENTE) */}
+            {(inspectingItem.status === 'scheduled' || inspectingItem.status === 'rescheduled_here') && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRunningSessionItem(inspectingItem);
+                  }}
+                  className="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-md transition cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  Iniciar Atendimento Agora
+                </button>
+              </div>
+            )}
+
             {(inspectingItem.status === 'scheduled' || inspectingItem.status === 'rescheduled_here') && (
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-slate-600 dark:text-slate-300">
@@ -1802,6 +1944,25 @@ export const PersonalScheduleModule: React.FC<PersonalScheduleModuleProps> = ({
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* JORNADA STEP-BY-STEP DE ATENDIMENTO DO PERSONAL */}
+      {runningSessionItem && (
+        <AttendanceSessionRunner
+          workout={runningSessionItem.workout}
+          studentId={runningSessionItem.workout.student_id}
+          studentName={runningSessionItem.workout.student_name}
+          studentPhone={runningSessionItem.workout.student_phone}
+          studentGroup={runningSessionItem.workout.student_group_name}
+          sessionDate={runningSessionItem.dateStr}
+          scheduledWorkoutId={runningSessionItem.workout.id}
+          onClose={() => setRunningSessionItem(null)}
+          onSessionCompleted={async () => {
+            setRunningSessionItem(null);
+            await loadOverrides(weekStartDate, weekEndDate);
+            if (inspectingItem) setInspectingItem(null);
+          }}
+        />
       )}
     </div>
   );

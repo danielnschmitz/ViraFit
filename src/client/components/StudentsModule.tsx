@@ -9,32 +9,43 @@ import {
   Ban,
   Calendar,
   CalendarClock,
+  Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   ClipboardList,
   Clock,
   Copy,
   Dumbbell,
   FileText,
+  Flame,
+  HeartPulse,
+  History,
   Layers,
   Mail,
   MapPin,
   Pencil,
   Phone,
+  Play,
   Plus,
   Repeat,
   RotateCcw,
   Search,
+  Sliders,
   Sparkles,
   Trash2,
   UserCheck,
   Users,
 } from 'lucide-react';
 import {
+  AttendanceSession,
+  AttendanceSessionItem,
   DAYS_OF_WEEK,
   DAYS_OF_WEEK_SHORT,
   Organization,
+  PhysiologicalIssue,
   SCHEME_TYPES_INFO,
   ScheduleType,
   ScheduledWorkoutOverride,
@@ -47,6 +58,7 @@ import {
   apiFetch,
   formatSchemeSummary,
 } from '../api';
+import { AttendanceSessionRunner } from './AttendanceSessionRunner';
 import {
   ErrorBox,
   Field,
@@ -128,11 +140,21 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
 
   // Ficha do Aluno Selecionado
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId || null);
-  const [studentTab, setStudentTab] = useState<'agenda' | 'free_workouts'>('agenda');
+  const [studentTab, setStudentTab] = useState<'agenda' | 'free_workouts' | 'history'>('agenda');
   const [studentWorkouts, setStudentWorkouts] = useState<StudentWorkout[]>([]);
   const [scheduledWorkouts, setScheduledWorkouts] = useState<StudentScheduledWorkout[]>([]);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
+  const [attendanceSessions, setAttendanceSessions] = useState<AttendanceSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [loadingStudentData, setLoadingStudentData] = useState(false);
+
+  // Execução de Atendimento na ficha do aluno
+  const [runningStudentSessionItem, setRunningStudentSessionItem] = useState<{
+    workout: StudentScheduledWorkout | StudentWorkout;
+    dateStr: string;
+    scheduledWorkoutId?: string | null;
+  } | null>(null);
 
   // Criação / Edição de Treino Livre do Aluno
   const [editingWorkout, setEditingWorkout] = useState<StudentWorkout | 'new' | null>(null);
@@ -253,17 +275,48 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
     }
   };
 
+  const loadStudentSessions = async (studentId: string) => {
+    setLoadingSessions(true);
+    try {
+      const data = await apiFetch<AttendanceSession[]>(`/api/org/attendance-sessions?studentId=${studentId}`);
+      setAttendanceSessions(data);
+    } catch (err: any) {
+      console.error('[StudentSessions] Erro ao carregar sessões de atendimento:', err);
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    if (!window.confirm('Deseja realmente excluir este registro de atendimento?')) return;
+    try {
+      await apiFetch(`/api/org/attendance-sessions/${sessionId}`, {
+        method: 'DELETE',
+      });
+      if (selectedStudentId) {
+        await loadStudentSessions(selectedStudentId);
+        if (studentWeekDays.length === 7) {
+          await loadStudentOverrides(studentWeekDays[0].dateStr, studentWeekDays[6].dateStr, selectedStudentId);
+        }
+      }
+    } catch (err: any) {
+      alert(err.message || 'Erro ao excluir atendimento.');
+    }
+  };
+
   const loadStudentDetails = async (studentId: string) => {
     setLoadingStudentData(true);
     try {
-      const [wkRes, scheduledRes, tplRes] = await Promise.all([
+      const [wkRes, scheduledRes, tplRes, sessionsRes] = await Promise.all([
         apiFetch<StudentWorkout[]>(`/api/org/students/${studentId}/workouts`),
         apiFetch<StudentScheduledWorkout[]>(`/api/org/students/${studentId}/scheduled-workouts`),
         apiFetch<WorkoutTemplate[]>('/api/org/workout-templates'),
+        apiFetch<AttendanceSession[]>(`/api/org/attendance-sessions?studentId=${studentId}`).catch(() => []),
       ]);
       setStudentWorkouts(wkRes);
       setScheduledWorkouts(scheduledRes);
       setTemplates(tplRes);
+      setAttendanceSessions(sessionsRes);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -1274,6 +1327,33 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
           </div>
         </Modal>
       )}
+
+      {/* Modal de Execução de Atendimento Step-by-Step */}
+      {runningStudentSessionItem && selectedStudent && (
+        <AttendanceSessionRunner
+          workout={runningStudentSessionItem.workout as any}
+          studentId={selectedStudent.id}
+          studentName={selectedStudent.name}
+          studentPhone={selectedStudent.phone}
+          studentGroup={selectedStudent.group_name}
+          sessionDate={runningStudentSessionItem.dateStr}
+          scheduledWorkoutId={runningStudentSessionItem.scheduledWorkoutId}
+          onClose={() => setRunningStudentSessionItem(null)}
+          onSessionCompleted={async () => {
+            setRunningStudentSessionItem(null);
+            if (selectedStudentId) {
+              await loadStudentSessions(selectedStudentId);
+              if (studentWeekDays.length === 7) {
+                await loadStudentOverrides(
+                  studentWeekDays[0].dateStr,
+                  studentWeekDays[6].dateStr,
+                  selectedStudentId
+                );
+              }
+            }
+          }}
+        />
+      )}
     </>
   );
 
@@ -1793,12 +1873,12 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
           )}
         </div>
 
-        {/* Navegação entre Agenda e Treinos Livres */}
-        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800">
+        {/* Navegação entre Agenda, Treinos Livres e Histórico */}
+        <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
           <button
             type="button"
             onClick={() => setStudentTab('agenda')}
-            className={`pb-3 px-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer ${
+            className={`pb-3 px-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer whitespace-nowrap ${
               studentTab === 'agenda'
                 ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -1818,7 +1898,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
           <button
             type="button"
             onClick={() => setStudentTab('free_workouts')}
-            className={`pb-3 px-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer ${
+            className={`pb-3 px-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer whitespace-nowrap ${
               studentTab === 'free_workouts'
                 ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400'
                 : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -1828,6 +1908,22 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
             Treinos Livres (Sem Agenda)
             <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
               {studentWorkouts.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStudentTab('history')}
+            className={`pb-3 px-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition cursor-pointer whitespace-nowrap ${
+              studentTab === 'history'
+                ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            Histórico de Atendimentos
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              {attendanceSessions.length}
             </span>
           </button>
         </div>
@@ -1976,7 +2072,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                   const dayItems: {
                     id: string;
                     workout: StudentScheduledWorkout;
-                    status: 'scheduled' | 'cancelled' | 'rescheduled_away' | 'rescheduled_here' | 'rescheduled_cancelled';
+                    status: 'scheduled' | 'cancelled' | 'rescheduled_away' | 'rescheduled_here' | 'rescheduled_cancelled' | 'completed';
                     scheduledTime?: string | null;
                     dateStr: string;
                     originalDate?: string;
@@ -1990,7 +2086,17 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                       (o) => o.scheduled_workout_id === wk.id && o.original_date === day.dateStr
                     );
                     if (ov) {
-                      if (ov.status === 'cancelled') {
+                      if (ov.status === 'completed') {
+                        dayItems.push({
+                          id: `${wk.id}_${day.dateStr}_completed`,
+                          workout: wk,
+                          status: 'completed',
+                          scheduledTime: wk.scheduled_time,
+                          dateStr: day.dateStr,
+                          originalDate: day.dateStr,
+                          notes: ov.notes,
+                        });
+                      } else if (ov.status === 'cancelled') {
                         if (ov.rescheduled_date && ov.rescheduled_date !== day.dateStr) {
                           dayItems.push({
                             id: `${wk.id}_${day.dateStr}_rescheduled_away`,
@@ -2041,16 +2147,17 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
 
                   // 2. Treinos reagendados PARA este dia
                   const rescheduledHere = studentOverrides.filter(
-                    (o) => (o.status === 'rescheduled' || o.status === 'cancelled') && o.rescheduled_date === day.dateStr
+                    (o) => (o.status === 'rescheduled' || o.status === 'cancelled' || o.status === 'completed') && o.rescheduled_date === day.dateStr
                   );
                   for (const ov of rescheduledHere) {
                     const wk = scheduledWorkouts.find((w) => w.id === ov.scheduled_workout_id);
                     if (wk) {
                       const isCancelled = ov.status === 'cancelled';
+                      const isCompleted = ov.status === 'completed';
                       dayItems.push({
-                        id: `${wk.id}_${day.dateStr}_${isCancelled ? 'rescheduled_cancelled' : 'rescheduled_here'}`,
+                        id: `${wk.id}_${day.dateStr}_${isCompleted ? 'completed' : isCancelled ? 'rescheduled_cancelled' : 'rescheduled_here'}`,
                         workout: wk,
-                        status: isCancelled ? 'rescheduled_cancelled' : 'rescheduled_here',
+                        status: isCompleted ? 'completed' : isCancelled ? 'rescheduled_cancelled' : 'rescheduled_here',
                         scheduledTime: ov.rescheduled_time || wk.scheduled_time,
                         dateStr: day.dateStr,
                         originalDate: ov.original_date,
@@ -2137,6 +2244,7 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                             const isRescheduledAway = item.status === 'rescheduled_away';
                             const isRescheduledHere = item.status === 'rescheduled_here';
                             const isRescheduledCancelled = item.status === 'rescheduled_cancelled';
+                            const isCompleted = item.status === 'completed';
                             const isAnyCancelled = isCancelled || isRescheduledCancelled;
                             const wk = item.workout;
 
@@ -2144,7 +2252,9 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                               <div
                                 key={item.id}
                                 className={`p-3 rounded-xl border transition group flex flex-col justify-between gap-2 shadow-xs ${
-                                  isAnyCancelled
+                                  isCompleted
+                                    ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/80'
+                                    : isAnyCancelled
                                     ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50 opacity-80'
                                     : isRescheduledAway
                                     ? 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50 opacity-80'
@@ -2161,7 +2271,11 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                                         <h4 className={`font-bold text-xs line-clamp-2 ${isAnyCancelled ? 'line-through text-slate-400' : 'text-slate-900 dark:text-white'}`}>
                                           {wk.name}
                                         </h4>
-                                        {isRescheduledCancelled ? (
+                                        {isCompleted ? (
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 shrink-0">
+                                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" /> Realizado
+                                          </span>
+                                        ) : isRescheduledCancelled ? (
                                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 shrink-0">
                                             <Ban className="w-2.5 h-2.5" /> Cancelado (Reagendado)
                                           </span>
@@ -2285,6 +2399,50 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                                         +{wk.items.length - 3} mais exercícios...
                                       </div>
                                     )}
+                                  </div>
+                                )}
+
+                                {/* Botão de Iniciar Atendimento */}
+                                {(item.status === 'scheduled' || item.status === 'rescheduled_here') && (
+                                  <div className="pt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setRunningStudentSessionItem({
+                                          workout: wk,
+                                          dateStr: day.dateStr,
+                                          scheduledWorkoutId: wk.id,
+                                        });
+                                      }}
+                                      className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-98 transition cursor-pointer"
+                                    >
+                                      <Play className="w-3.5 h-3.5 fill-current" />
+                                      Iniciar Atendimento
+                                    </button>
+                                  </div>
+                                )}
+
+                                {isCompleted && (
+                                  <div className="pt-1">
+                                    <div className="flex items-center justify-between gap-1 w-full bg-emerald-100/70 dark:bg-emerald-950/60 p-2 rounded-xl text-emerald-800 dark:text-emerald-300">
+                                      <div className="flex items-center gap-1.5 text-xs font-bold">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                        Atendido
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setRunningStudentSessionItem({
+                                            workout: wk,
+                                            dateStr: day.dateStr,
+                                            scheduledWorkoutId: wk.id,
+                                          });
+                                        }}
+                                        className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer"
+                                      >
+                                        Refazer
+                                      </button>
+                                    </div>
                                   </div>
                                 )}
 
@@ -2577,6 +2735,23 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                             )}
                           </div>
 
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRunningStudentSessionItem({
+                                  workout: wk,
+                                  dateStr: formatDateToISO(new Date()),
+                                  scheduledWorkoutId: wk.id,
+                                });
+                              }}
+                              className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs active:scale-98 transition cursor-pointer"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              Iniciar Atendimento
+                            </button>
+                          </div>
+
                           <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
                             <span className="text-slate-400 text-[11px] flex items-center gap-1">
                               Próximo:{' '}
@@ -2794,6 +2969,355 @@ export const StudentsModule: React.FC<StudentsModuleProps> = ({ org, initialStud
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CONTEÚDO DA ABA: HISTÓRICO DE ATENDIMENTOS */}
+        {studentTab === 'history' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <History className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  Histórico de Atendimentos Realizados ({attendanceSessions.length})
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Registros completos das sessões de treino, cargas executadas, percepção de esforço (PSE) e intercorrências fisiológicas.
+                </p>
+              </div>
+
+              {selectedStudentId && (
+                <button
+                  type="button"
+                  onClick={() => loadStudentSessions(selectedStudentId)}
+                  disabled={loadingSessions}
+                  className={btnGhost}
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${loadingSessions ? 'animate-spin' : ''}`} />
+                  Atualizar
+                </button>
+              )}
+            </div>
+
+            {/* Painel de Métricas Gerais do Aluno */}
+            {attendanceSessions.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className={`${cardCls} p-3.5`}>
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    Atendimentos
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white mt-1">
+                    {attendanceSessions.length}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">sessões registradas</div>
+                </div>
+
+                <div className={`${cardCls} p-3.5`}>
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                    Tempo Total
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white mt-1">
+                    {(() => {
+                      const totalSec = attendanceSessions.reduce((acc, s) => acc + (s.duration_seconds || 0), 0);
+                      const hrs = Math.floor(totalSec / 3600);
+                      const mins = Math.floor((totalSec % 3600) / 60);
+                      return hrs > 0 ? `${hrs}h ${mins}m` : `${mins} min`;
+                    })()}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">tempo de execução ativo</div>
+                </div>
+
+                <div className={`${cardCls} p-3.5`}>
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Flame className="w-3.5 h-3.5 text-amber-500" />
+                    Média de PSE
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white mt-1">
+                    {(() => {
+                      const validEffort = attendanceSessions.filter((s) => (s.perceived_effort || 0) > 0);
+                      if (validEffort.length === 0) return '-';
+                      const avg =
+                        validEffort.reduce((acc, s) => acc + (s.perceived_effort || 0), 0) /
+                        validEffort.length;
+                      return `${avg.toFixed(1)} / 10`;
+                    })()}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">esforço percebido</div>
+                </div>
+
+                <div className={`${cardCls} p-3.5`}>
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <HeartPulse className="w-3.5 h-3.5 text-rose-500" />
+                    Intercorrências
+                  </div>
+                  <div className="text-xl font-black text-slate-900 dark:text-white mt-1">
+                    {attendanceSessions.reduce((acc, s) => {
+                      const c = s.items?.reduce((iAcc, it) => iAcc + (it.issues?.length || 0), 0) || 0;
+                      return acc + c;
+                    }, 0)}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">feedbacks fisiológicos</div>
+                </div>
+              </div>
+            )}
+
+            {/* Estado de Carregamento */}
+            {loadingSessions && (
+              <div className={cardCls}>
+                <LoadingState message="Carregando histórico de atendimentos..." />
+              </div>
+            )}
+
+            {/* Estado Vazio */}
+            {!loadingSessions && attendanceSessions.length === 0 && (
+              <div className={`${cardCls} p-12 text-center space-y-3`}>
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                  <History className="w-6 h-6" />
+                </div>
+                <div className="text-base font-bold text-slate-800 dark:text-slate-100">
+                  Nenhum atendimento realizado ainda
+                </div>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Quando você iniciar e concluir um atendimento através da agenda do aluno ou do personal, o histórico completo com exercícios, séries e feedbacks ficará registrado aqui.
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setStudentTab('agenda')}
+                    className={btnPrimary}
+                  >
+                    <Calendar className="w-4 h-4" /> Ver Agenda de Treinos
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Lista de Atendimentos */}
+            {!loadingSessions && attendanceSessions.length > 0 && (
+              <div className="space-y-3">
+                {attendanceSessions.map((session) => {
+                  const isExpanded = expandedSessionId === session.id;
+                  const mins = Math.floor((session.duration_seconds || 0) / 60);
+                  const secs = (session.duration_seconds || 0) % 60;
+                  const effort = session.perceived_effort || 0;
+
+                  const allIssues = session.items?.flatMap((it) => it.issues || []) || [];
+
+                  return (
+                    <div
+                      key={session.id}
+                      className={`${cardCls} overflow-hidden border transition hover:border-emerald-500/40`}
+                    >
+                      {/* Linha Resumo do Atendimento */}
+                      <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start sm:items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0 font-bold">
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm text-slate-900 dark:text-white">
+                                {session.workout_name}
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                • {formatDatePtBr(session.session_date)}
+                              </span>
+                              {session.completed_at && (
+                                <span className="text-[11px] text-slate-400">
+                                  às {new Date(session.completed_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap mt-1 text-xs">
+                              <span className="inline-flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                {mins}m {secs}s
+                              </span>
+
+                              {effort > 0 && (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    effort >= 8
+                                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                      : effort >= 5
+                                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  }`}
+                                >
+                                  <Flame className="w-2.5 h-2.5" /> PSE {effort}/10
+                                </span>
+                              )}
+
+                              {allIssues.length > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40">
+                                  <HeartPulse className="w-2.5 h-2.5 text-rose-600" />
+                                  {allIssues.length} intercorrência(s)
+                                </span>
+                              )}
+
+                              <span className="text-slate-400 text-[11px]">
+                                {session.items?.length || 0} exercícios
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Ações da Sessão */}
+                        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedSessionId(isExpanded ? null : session.id)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            {isExpanded ? (
+                              <>
+                                <ChevronUp className="w-3.5 h-3.5" /> Ocultar Detalhes
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="w-3.5 h-3.5" /> Ver Detalhes
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSession(session.id)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                            title="Excluir este registro de atendimento"
+                            aria-label="Excluir atendimento"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Detalhes Expandidos da Sessão */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-4 space-y-3.5">
+                          {/* Notas do Treinador */}
+                          {session.notes && (
+                            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200">
+                              <span className="font-bold">Observações do Atendimento: </span>
+                              {session.notes}
+                            </div>
+                          )}
+
+                          {/* Lista de Exercícios Realizados */}
+                          <div className="space-y-2.5">
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                              Exercícios e Séries Executadas
+                            </h4>
+
+                            <div className="space-y-2">
+                              {session.items && session.items.length > 0 ? (
+                                session.items.map((it, idx) => {
+                                  const isCompleted = it.status === 'completed';
+                                  const isSkipped = it.status === 'skipped';
+                                  const isNotDone = it.status === 'not_done';
+
+                                  return (
+                                    <div
+                                      key={it.id || idx}
+                                      className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2"
+                                    >
+                                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                                        <div className="flex items-center gap-2">
+                                          <span className="w-5 h-5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[10px] flex items-center justify-center">
+                                            {idx + 1}
+                                          </span>
+                                          <span className="font-bold text-xs text-slate-900 dark:text-white">
+                                            {it.exercise_name}
+                                          </span>
+                                        </div>
+
+                                        <div>
+                                          {isCompleted && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" /> Concluído
+                                            </span>
+                                          )}
+                                          {isSkipped && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                              Pulado
+                                            </span>
+                                          )}
+                                          {isNotDone && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                                              Não realizado {it.not_done_reason ? `(${it.not_done_reason})` : ''}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Séries realizadas */}
+                                      {it.performed_sets && it.performed_sets.length > 0 && (
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-1.5">
+                                          {it.performed_sets.map((set) => (
+                                            <div
+                                              key={set.set_number}
+                                              className={`p-2 rounded-lg border text-center text-xs ${
+                                                set.completed
+                                                  ? 'bg-emerald-50/70 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/50'
+                                                  : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700 opacity-60'
+                                              }`}
+                                            >
+                                              <div className="text-[10px] font-semibold text-slate-400">
+                                                Série {set.set_number}
+                                              </div>
+                                              <div className="font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+                                                {set.reps} reps
+                                              </div>
+                                              <div className="text-[10px] text-slate-500">
+                                                {set.weight_kg ? `${set.weight_kg} kg` : 'Sem peso'}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+
+                                      {/* Intercorrências do exercício */}
+                                      {it.issues && it.issues.length > 0 && (
+                                        <div className="pt-1.5 flex items-center gap-1.5 flex-wrap">
+                                          {it.issues.map((iss, iIdx) => (
+                                            <span
+                                              key={iIdx}
+                                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                                            >
+                                              <HeartPulse className="w-2.5 h-2.5 text-rose-600" />
+                                              {iss.type}
+                                              {iss.notes ? ` • ${iss.notes}` : ''}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+
+                                      {it.notes && (
+                                        <div className="text-[11px] text-slate-500 italic">
+                                          Nota: {it.notes}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <p className="text-xs text-slate-400 italic">
+                                  Nenhum item detalhado nesta sessão.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

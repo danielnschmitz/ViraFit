@@ -833,6 +833,47 @@ export async function initDatabase(): Promise<void> {
         CONSTRAINT uq_scheduled_workout_override UNIQUE(scheduled_workout_id, original_date)
       );
 
+      CREATE TABLE IF NOT EXISTS student_attendance_sessions (
+        id VARCHAR(36) PRIMARY KEY,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        student_id VARCHAR(36) NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        scheduled_workout_id VARCHAR(36) REFERENCES student_scheduled_workouts(id) ON DELETE SET NULL,
+        workout_name VARCHAR(255) NOT NULL,
+        session_date VARCHAR(20) NOT NULL,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMPTZ,
+        duration_seconds INTEGER DEFAULT 0,
+        perceived_effort INTEGER,
+        general_notes TEXT,
+        total_exercises INTEGER DEFAULT 0,
+        completed_exercises INTEGER DEFAULT 0,
+        skipped_exercises INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS student_attendance_session_items (
+        id VARCHAR(36) PRIMARY KEY,
+        session_id VARCHAR(36) NOT NULL REFERENCES student_attendance_sessions(id) ON DELETE CASCADE,
+        organization_id VARCHAR(36) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        exercise_id VARCHAR(36) NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+        exercise_name VARCHAR(255) NOT NULL,
+        muscle_group_name VARCHAR(150),
+        category_name VARCHAR(150),
+        scheme_name VARCHAR(150),
+        scheme_type VARCHAR(40),
+        status VARCHAR(30) NOT NULL DEFAULT 'completed', -- 'completed', 'not_done'
+        reason_not_done TEXT,
+        target_sets INTEGER,
+        target_reps VARCHAR(100),
+        target_weight VARCHAR(150),
+        target_rest_time VARCHAR(30),
+        performed_sets JSONB DEFAULT '[]'::jsonb,
+        issues JSONB DEFAULT '[]'::jsonb,
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_users_org ON users(organization_id);
       CREATE INDEX IF NOT EXISTS idx_students_org ON students(organization_id, name);
       CREATE INDEX IF NOT EXISTS idx_muscle_groups_org ON muscle_groups(organization_id, name);
@@ -847,6 +888,8 @@ export async function initDatabase(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_student_scheduled_items_wk ON student_scheduled_workout_items(scheduled_workout_id, position);
       CREATE INDEX IF NOT EXISTS idx_workout_overrides_lookup ON scheduled_workout_overrides(organization_id, original_date);
       CREATE INDEX IF NOT EXISTS idx_workout_overrides_student ON scheduled_workout_overrides(organization_id, student_id);
+      CREATE INDEX IF NOT EXISTS idx_attendance_sessions_student ON student_attendance_sessions(organization_id, student_id, session_date);
+      CREATE INDEX IF NOT EXISTS idx_attendance_session_items_sess ON student_attendance_session_items(session_id, position);
     `);
 
     // Garantir criação do usuário Master padrão ('master' / 'admin123')

@@ -2197,3 +2197,278 @@ orgRouter.delete('/students/:studentId/scheduled-workouts/:id', async (req: Auth
     res.status(500).json({ error: 'Erro ao excluir treino agendado do aluno.' });
   }
 });
+
+/* ---------------- Atendimento / Sessões de Treino do Aluno ---------------- */
+
+orgRouter.get('/attendance-sessions', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const { studentId, startDate, endDate, date } = req.query as {
+      studentId?: string;
+      startDate?: string;
+      endDate?: string;
+      date?: string;
+    };
+
+    const conditions: string[] = ['sas.organization_id = $1'];
+    const params: any[] = [orgId];
+
+    if (studentId) {
+      params.push(studentId);
+      conditions.push(`sas.student_id = $${params.length}`);
+    }
+
+    if (date) {
+      params.push(date);
+      conditions.push(`sas.session_date = $${params.length}`);
+    }
+
+    if (startDate && endDate) {
+      params.push(startDate, endDate);
+      conditions.push(`sas.session_date >= $${params.length - 1} AND sas.session_date <= $${params.length}`);
+    }
+
+    const query = `
+      SELECT sas.*,
+             s.name AS student_name,
+             s.phone AS student_phone,
+             s.gender AS student_gender,
+             sg.name AS student_group_name
+      FROM student_attendance_sessions sas
+      JOIN students s ON sas.student_id = s.id AND sas.organization_id = s.organization_id
+      LEFT JOIN student_groups sg ON s.group_id = sg.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY sas.started_at DESC, sas.created_at DESC
+    `;
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[AttendanceSessions] Erro ao listar sessões:', err);
+    res.status(500).json({ error: 'Erro ao listar sessões de atendimento.' });
+  }
+});
+
+orgRouter.get('/attendance-sessions/:id', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const sessionId = String(req.params.id);
+
+    const sessionRes = await pool.query(
+      `SELECT sas.*,
+              s.name AS student_name,
+              s.phone AS student_phone,
+              s.gender AS student_gender,
+              sg.name AS student_group_name
+       FROM student_attendance_sessions sas
+       JOIN students s ON sas.student_id = s.id AND sas.organization_id = s.organization_id
+       LEFT JOIN student_groups sg ON s.group_id = sg.id
+       WHERE sas.id = $1 AND sas.organization_id = $2`,
+      [sessionId, orgId]
+    );
+
+    if (sessionRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Sessão de atendimento não encontrada.' });
+    }
+
+    const session = sessionRes.rows[0];
+
+    const itemsRes = await pool.query(
+      `SELECT * FROM student_attendance_session_items
+       WHERE session_id = $1 AND organization_id = $2
+       ORDER BY position ASC, created_at ASC`,
+      [sessionId, orgId]
+    );
+
+    session.items = itemsRes.rows;
+    res.json(session);
+  } catch (err) {
+    console.error('[AttendanceSessions] Erro ao buscar detalhes da sessão:', err);
+    res.status(500).json({ error: 'Erro ao buscar detalhes da sessão de atendimento.' });
+  }
+});
+
+orgRouter.post('/attendance-sessions', async (req: AuthRequest, res) => {
+  const client = await pool.connect();
+  try {
+    const orgId = req.activeOrgId!;
+    const {
+      student_id,
+      scheduled_workout_id,
+      workout_name,
+      session_date,
+      started_at,
+      completed_at,
+      duration_seconds,
+      perceived_effort,
+      general_notes,
+      items,
+    } = req.body;
+
+    if (!student_id || !workout_name || !session_date) {
+      return res.status(400).json({
+        error: 'student_id, workout_name e session_date são obrigatórios.',
+      });
+    }
+
+    await client.query('BEGIN');
+
+    const sessionId = crypto.randomUUID();
+    const itemList = Array.isArray(items) ? items : [];
+
+    let completedCount = 0;
+    let skippedCount = 0;
+
+    for (const it of itemList) {
+      if (it.status === 'completed') completedCount++;
+      else if (it.status === 'not_done') skippedCount++;
+    }
+
+    const sessionInsertQuery = `
+      INSERT INTO student_attendance_sessions (
+        id, organization_id, student_id, scheduled_workout_id, workout_name,
+        session_date, started_at, completed_at, duration_seconds,
+        perceived_effort, general_notes, total_exercises, completed_exercises, skipped_exercises
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING *
+    `;
+
+    const sessionResult = await client.query(sessionInsertQuery, [
+      sessionId,
+      orgId,
+      student_id,
+      scheduled_workout_id || null,
+      String(workout_name).trim(),
+      String(session_date).trim(),
+      started_at ? new Date(started_at) : new Date(),
+      completed_at ? new Date(completed_at) : new Date(),
+      Number(duration_seconds) || 0,
+      perceived_effort ? Number(perceived_effort) : null,
+      general_notes ? String(general_notes).trim() : null,
+      itemList.length,
+      completedCount,
+      skippedCount,
+    ]);
+
+    const insertedSession = sessionResult.rows[0];
+
+    // Inserir cada item da sessão
+    for (let i = 0; i < itemList.length; i++) {
+      const it = itemList[i];
+      const itemId = crypto.randomUUID();
+      const performedSetsJson = JSON.stringify(it.performed_sets || []);
+      const issuesJson = JSON.stringify(it.issues || []);
+
+      await client.query(
+        `INSERT INTO student_attendance_session_items (
+           id, session_id, organization_id, position, exercise_id, exercise_name,
+           muscle_group_name, category_name, scheme_name, scheme_type, status,
+           reason_not_done, target_sets, target_reps, target_weight, target_rest_time,
+           performed_sets, issues, notes
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18::jsonb, $19)`,
+        [
+          itemId,
+          sessionId,
+          orgId,
+          i,
+          it.exercise_id,
+          String(it.exercise_name || 'Exercício').trim(),
+          it.muscle_group_name || null,
+          it.category_name || null,
+          it.scheme_name || 'Padrão',
+          it.scheme_type || 'series_retas',
+          it.status === 'not_done' ? 'not_done' : 'completed',
+          it.reason_not_done ? String(it.reason_not_done).trim() : null,
+          Number(it.target_sets) || 1,
+          String(it.target_reps || '10'),
+          it.target_weight ? String(it.target_weight) : null,
+          it.target_rest_time ? String(it.target_rest_time) : null,
+          performedSetsJson,
+          issuesJson,
+          it.notes ? String(it.notes).trim() : null,
+        ]
+      );
+    }
+
+    // Se a sessão veio de um treino agendado, sincronizar com scheduled_workout_overrides como 'completed'
+    if (scheduled_workout_id && session_date) {
+      const overrideId = crypto.randomUUID();
+      await client.query(
+        `INSERT INTO scheduled_workout_overrides (
+           id, organization_id, scheduled_workout_id, student_id, original_date,
+           status, notes, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, 'completed', $6, NOW())
+         ON CONFLICT (scheduled_workout_id, original_date)
+         DO UPDATE SET
+           status = 'completed',
+           notes = EXCLUDED.notes,
+           updated_at = NOW()`,
+        [
+          overrideId,
+          orgId,
+          scheduled_workout_id,
+          student_id,
+          session_date,
+          `Atendimento realizado (${completedCount} concluídos, ${skippedCount} não realizados)`,
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // Buscar a sessão completa criada com os itens
+    const itemsRes = await pool.query(
+      `SELECT * FROM student_attendance_session_items WHERE session_id = $1 ORDER BY position ASC`,
+      [sessionId]
+    );
+
+    insertedSession.items = itemsRes.rows;
+    res.status(201).json(insertedSession);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[AttendanceSessions] Erro ao registrar atendimento:', err);
+    res.status(500).json({ error: 'Erro ao registrar atendimento do aluno.' });
+  } finally {
+    client.release();
+  }
+});
+
+orgRouter.delete('/attendance-sessions/:id', async (req: AuthRequest, res) => {
+  try {
+    const orgId = req.activeOrgId!;
+    const sessionId = String(req.params.id);
+
+    const sessionRes = await pool.query(
+      `SELECT * FROM student_attendance_sessions WHERE id = $1 AND organization_id = $2`,
+      [sessionId, orgId]
+    );
+
+    if (sessionRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Sessão de atendimento não encontrada.' });
+    }
+
+    const session = sessionRes.rows[0];
+
+    // Se tinha vínculo com override 'completed', restaurar
+    if (session.scheduled_workout_id && session.session_date) {
+      await pool.query(
+        `DELETE FROM scheduled_workout_overrides
+         WHERE scheduled_workout_id = $1 AND original_date = $2 AND organization_id = $3 AND status = 'completed'`,
+        [session.scheduled_workout_id, session.session_date, orgId]
+      );
+    }
+
+    await pool.query(
+      `DELETE FROM student_attendance_sessions WHERE id = $1 AND organization_id = $2`,
+      [sessionId, orgId]
+    );
+
+    res.json({ message: 'Sessão de atendimento excluída com sucesso.' });
+  } catch (err) {
+    console.error('[AttendanceSessions] Erro ao excluir sessão:', err);
+    res.status(500).json({ error: 'Erro ao excluir sessão de atendimento.' });
+  }
+});

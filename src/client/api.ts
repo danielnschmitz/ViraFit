@@ -195,6 +195,140 @@ export interface ScheduledWorkoutOverride {
   scheduled_workout_name?: string;
 }
 
+export interface PerformedSet {
+  set_number: number;
+  reps: string;
+  weight_kg?: string;
+  completed: boolean;
+}
+
+export type PhysiologicalIssueType =
+  | 'fatigue'
+  | 'high_heart_rate'
+  | 'dizziness'
+  | 'shortness_of_breath'
+  | 'joint_pain'
+  | 'muscle_pain'
+  | 'blood_pressure_drop'
+  | 'form_breakdown'
+  | 'other';
+
+export interface PhysiologicalIssue {
+  id: string;
+  type: PhysiologicalIssueType;
+  label: string;
+  description?: string;
+  registered_at: string; // ISO
+}
+
+export interface AttendanceSessionItem {
+  id: string;
+  session_id: string;
+  organization_id: string;
+  position: number;
+  exercise_id: string;
+  exercise_name: string;
+  muscle_group_name?: string | null;
+  category_name?: string | null;
+  scheme_name: string;
+  scheme_type: SchemeType;
+  status: 'completed' | 'not_done';
+  reason_not_done?: string | null;
+  target_sets: number;
+  target_reps: string;
+  target_weight?: string | null;
+  target_rest_time?: string | null;
+  performed_sets: PerformedSet[];
+  issues: PhysiologicalIssue[];
+  notes?: string | null;
+  created_at?: string;
+}
+
+export interface AttendanceSession {
+  id: string;
+  organization_id: string;
+  student_id: string;
+  scheduled_workout_id?: string | null;
+  workout_name: string;
+  session_date: string;
+  started_at: string;
+  completed_at?: string | null;
+  duration_seconds: number;
+  perceived_effort?: number | null; // 1 a 10
+  general_notes?: string | null;
+  total_exercises: number;
+  completed_exercises: number;
+  skipped_exercises: number;
+  student_name?: string;
+  student_phone?: string | null;
+  student_gender?: Student['gender'];
+  student_group_name?: string;
+  items?: AttendanceSessionItem[];
+  created_at?: string;
+}
+
+export const PHYSIOLOGICAL_ISSUE_OPTIONS: {
+  type: PhysiologicalIssueType;
+  label: string;
+  descriptionHint: string;
+  badgeCls: string;
+}[] = [
+  {
+    type: 'fatigue',
+    label: 'Cansaço / Fadiga Excessiva',
+    descriptionHint: 'Ex: Aluno sentiu queimação extrema e exaustão muscular rápida',
+    badgeCls: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/80 dark:text-amber-300 dark:border-amber-800',
+  },
+  {
+    type: 'high_heart_rate',
+    label: 'Batimentos Muito Elevados',
+    descriptionHint: 'Ex: Frequência cardíaca atingiu 175 bpm no frequencímetro',
+    badgeCls: 'bg-rose-100 text-rose-900 border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-800',
+  },
+  {
+    type: 'dizziness',
+    label: 'Tontura / Vertigem / Vista Escura',
+    descriptionHint: 'Ex: Sentiu tontura leve ao levantar do aparelho',
+    badgeCls: 'bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-950/80 dark:text-purple-300 dark:border-purple-800',
+  },
+  {
+    type: 'shortness_of_breath',
+    label: 'Falta de Ar / Respiração Ofegante',
+    descriptionHint: 'Ex: Dificuldade para recuperar o fôlego entre as séries',
+    badgeCls: 'bg-sky-100 text-sky-900 border-sky-300 dark:bg-sky-950/80 dark:text-sky-300 dark:border-sky-800',
+  },
+  {
+    type: 'joint_pain',
+    label: 'Dor Articular / Desconforto',
+    descriptionHint: 'Ex: Pontada no joelho direito durante a flexão',
+    badgeCls: 'bg-orange-100 text-orange-900 border-orange-300 dark:bg-orange-950/80 dark:text-orange-300 dark:border-orange-800',
+  },
+  {
+    type: 'muscle_pain',
+    label: 'Dor Muscular Aguda / Cãibra',
+    descriptionHint: 'Ex: Princípio de cãibra no posterior de coxa',
+    badgeCls: 'bg-red-100 text-red-900 border-red-300 dark:bg-red-950/80 dark:text-red-300 dark:border-red-800',
+  },
+  {
+    type: 'blood_pressure_drop',
+    label: 'Queda de Pressão / Mal-estar',
+    descriptionHint: 'Ex: Suor frio, palidez ou fraqueza repentina',
+    badgeCls: 'bg-yellow-100 text-yellow-900 border-yellow-300 dark:bg-yellow-950/80 dark:text-yellow-300 dark:border-yellow-800',
+  },
+  {
+    type: 'form_breakdown',
+    label: 'Comprometimento da Postura / Técnica',
+    descriptionHint: 'Ex: Compensação na lombar por carga excessiva',
+    badgeCls: 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+  },
+  {
+    type: 'other',
+    label: 'Outra Observação / Sintoma',
+    descriptionHint: 'Descreva livremente o que o aluno relatou ou manifestou',
+    badgeCls: 'bg-zinc-100 text-zinc-800 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700',
+  },
+];
+
 export const DAYS_OF_WEEK = [
   'Domingo',
   'Segunda-feira',
